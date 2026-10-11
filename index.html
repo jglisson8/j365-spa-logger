@@ -26,6 +26,8 @@
       <div class="inline"><input id="showered" type="checkbox" checked><label for="showered">Showered beforehand</label></div>
       <label>Temperature °F</label><select id="temperature"><option>100</option><option>101</option><option>102</option><option>103</option><option>104</option><option>105</option><option selected>106</option></select>
       <label>Notes</label><textarea id="soakNotes" placeholder="Optional"></textarea>
+      <label for="jetAirUse">Jet / air use</label><select id="jetAirUse"><option value="">Not recorded</option><option value="off">Jets off</option><option value="water_only">Water jets, air controls closed</option><option value="air_on">Water jets, air controls open</option><option value="mixed">Mixed during soak</option></select>
+      <div id="airMinutesField" hidden><label for="airMinutes">Minutes with air on (optional)</label><input id="airMinutes" type="number" min="0" step="0.5"></div>
       <button class="primary" type="submit">Save soak</button>
     </form>
   </section>
@@ -44,6 +46,15 @@
       </div>
       <div class="subhead">Chemical additions</div><div id="doses"></div><button class="secondary" type="button" id="addDose">+ Add chemical dose</button>
       <label>Notes</label><textarea id="chemNotes" placeholder="Clarity, odor, cover exposure, etc."></textarea>
+      <div class="subhead">Conditions (optional)</div>
+      <div class="two">
+        <div><label for="additionReason">Reason for addition</label><select id="additionReason"><option value="">Not recorded</option><option value="routine">Routine maintenance</option><option value="after_soak">After soak</option><option value="initial_fill">Initial fill balancing</option><option value="correction">Correcting a test result</option><option value="shock">Shock treatment</option><option value="other">Other</option></select></div>
+        <div><label for="waterAppearance">Water appearance</label><select id="waterAppearance"><option value="">Not recorded</option><option value="clear">Clear</option><option value="cloudy">Cloudy</option><option value="foamy">Foamy</option><option value="discolored">Discolored</option><option value="other">Other</option></select></div>
+        <div><label for="waterOdor">Odor</label><select id="waterOdor"><option value="">Not recorded</option><option value="normal">None unusual</option><option value="chemical">Strong chemical odor</option><option value="unusual">Musty / unusual</option><option value="other">Other</option></select></div>
+        <div><label for="coverCondition">Cover condition since last test</label><select id="coverCondition"><option value="">Not recorded</option><option value="closed">Mostly closed</option><option value="normal_use">Open only for soaking / dosing</option><option value="left_open">Left open longer than usual</option><option value="blown_open">Found blown open</option></select></div>
+      </div>
+      <div id="coverMinutesField" hidden><label for="coverOpenMinutes">Estimated time open (minutes, optional)</label><input id="coverOpenMinutes" type="number" min="0" step="1"></div>
+      <label for="circulationMinutes">Circulation after dosing (minutes, optional)</label><input id="circulationMinutes" type="number" min="0" step="1">
       <button class="primary" type="submit">Save chemistry</button>
     </form>
   </section>
@@ -83,7 +94,7 @@
   <div class="panel" id="history"></div>
 
 <script>
-const APP_VERSION='6.1.1',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.2.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
 const SPA_DOWN_OZ_PER_DROP=0.49*(VOLUME_GAL/400)*(93.2/95),SPA_DOWN_TSP_PER_OZ=6;
 const $=id=>document.getElementById(id),num=v=>v===''||v==null?null:Number(v),pad=n=>String(n).padStart(2,'0');
@@ -106,8 +117,13 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>setTab(b.data
 function label(e){if(e.type==='soak')return `${e.bathers} bather(s), ${e.duration_minutes} min, ${e.temperature_f||'?'}°F`;if(e.type==='chemistry')return [['FC',e.fc_ppm],['CC',e.cc_ppm],['pH',e.ph],['TA',e.ta_ppm],['CH',e.ch_ppm],['CYA',e.cya_ppm]].filter(x=>x[1]!=null).map(x=>x.join(' ')).join(', ');if(e.type==='chemical_addition')return `${e.amount} ${e.unit} ${e.product}`;if(e.type==='maintenance'){const activity=e.activity==='custom'&&e.custom_activity?e.custom_activity:e.activity.replaceAll('_',' ');return activity+(e.product?` — ${e.product}`:'')+(e.filter_set?` — filter ${e.filter_set}`:'')}if(e.type==='water_change')return `${e.full?'Full':'Partial'} water change${e.gallons?` — ${e.gallons} gal`:''}`;if(e.type==='water_top_off')return `Top-off — ${e.gallons} gal`;return e.notes||e.type}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function render(){const events=read().sort((a,b)=>b.timestamp.localeCompare(a.timestamp));$('history').innerHTML=events.length?events.slice(0,50).map(e=>`<div class="entry"><small>${esc(e.timestamp.replace('T',' '))}</small><strong>${esc(e.type.replaceAll('_',' '))} — ${esc(label(e))}</strong>${e.notes?`<small>${esc(e.notes)}</small>`:''}</div>`).join(''):'No events yet.'}
-function save(events,message,autoSync=true){write(merge(read(),events));render();$('toast').textContent=`✓ ${message}`;setTimeout(()=>$('toast').textContent='',3500);if(autoSync)syncMonths([...new Set(events.map(e=>e.timestamp.slice(0,7)))])}
+function save(events,message,autoSync=true){if(message==='Soak saved'){for(const event of events){if($('jetAirUse').value)event.jet_air_use=$('jetAirUse').value;if($('jetAirUse').value==='mixed'&&num($('airMinutes').value)!=null)event.air_on_minutes=num($('airMinutes').value)}}if(message==='Chemistry saved'){for(const event of events){for(const [field,key] of [['waterAppearance','water_appearance'],['waterOdor','water_odor'],['coverCondition','cover_condition']])if($(field).value)event[key]=$(field).value;if(['left_open','blown_open'].includes($('coverCondition').value)&&num($('coverOpenMinutes').value)!=null)event.cover_open_minutes=num($('coverOpenMinutes').value);if(event.type==='chemical_addition'){if($('additionReason').value)event.addition_reason=$('additionReason').value;if(num($('circulationMinutes').value)!=null)event.circulation_minutes=num($('circulationMinutes').value)}}}write(merge(read(),events));render();$('toast').textContent=`✓ ${message}`;setTimeout(()=>$('toast').textContent='',3500);if(autoSync)syncMonths([...new Set(events.map(e=>e.timestamp.slice(0,7)))])}
 function base(type,ts){return {id:id(),schema_version:SCHEMA_VERSION,app_version:APP_VERSION,type,timestamp:ts,created_at:localNow(),fill_cycle_id:config?.current_fill_cycle_id??null}}
+function conditionUI(){$('airMinutesField').hidden=$('jetAirUse').value!=='mixed';$('coverMinutesField').hidden=!['left_open','blown_open'].includes($('coverCondition').value)}
+$('jetAirUse').onchange=conditionUI;$('coverCondition').onchange=conditionUI;conditionUI();
+$('soakForm').addEventListener('submit',e=>{const minutes=num($('airMinutes').value);if($('jetAirUse').value==='mixed'&&minutes!=null&&minutes>Number($('minutes').value)){e.preventDefault();e.stopImmediatePropagation();alert('Minutes with air on cannot exceed the soak duration.')}},true);
+const saveWithConditions=save;
+save=function(events,message,autoSync=true){saveWithConditions(events,message,autoSync);if(message==='Soak saved'){$('jetAirUse').value='';$('airMinutes').value=''}else if(message==='Chemistry saved'){for(const field of ['additionReason','waterAppearance','waterOdor','coverCondition'])$(field).value='';$('coverOpenMinutes').value='';$('circulationMinutes').value=''}conditionUI()};
 
 $('soakForm').onsubmit=e=>{e.preventDefault();const ts=timestamp(e.currentTarget);save([{...base('soak',ts),bathers:Number($('bathers').value),duration_minutes:Number($('minutes').value),showered:$('showered').checked,temperature_f:Number($('temperature').value),notes:text($('soakNotes').value)}],'Soak saved');$('soakNotes').value='';fillNow()};
 const products=['7.5% liquid bleach','Dichlor','Leisure Time Spa Down','Baking soda','Boric acid','Calcium increaser','Other'],units=['fl oz','tbsp','tsp','cup','oz by weight','grams'];
