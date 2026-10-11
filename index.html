@@ -26,7 +26,7 @@
       <div class="inline"><input id="showered" type="checkbox" checked><label for="showered">Showered beforehand</label></div>
       <label>Temperature °F</label><select id="temperature"><option>100</option><option>101</option><option>102</option><option>103</option><option>104</option><option>105</option><option selected>106</option></select>
       <label>Notes</label><textarea id="soakNotes" placeholder="Optional"></textarea>
-      <label for="jetAirUse">Jet / air use</label><select id="jetAirUse"><option value="">Not recorded</option><option value="off">Jets off</option><option value="water_only">Water jets, air controls closed</option><option value="air_on">Water jets, air controls open</option><option value="mixed">Mixed during soak</option></select>
+      <label for="jetAirUse">Jet / air use</label><select id="jetAirUse"><option value="">Not recorded</option><option value="off">Jets off</option><option value="water_only">Water jets, air controls closed</option><option value="air_on" selected>Water jets, air controls open</option><option value="mixed">Mixed during soak</option></select>
       <div id="airMinutesField" hidden><label for="airMinutes">Minutes with air on (optional)</label><input id="airMinutes" type="number" min="0" step="0.5"></div>
       <button class="primary" type="submit">Save soak</button>
     </form>
@@ -94,7 +94,7 @@
   <div class="panel" id="history"></div>
 
 <script>
-const APP_VERSION='6.2.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.2.1',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
 const SPA_DOWN_OZ_PER_DROP=0.49*(VOLUME_GAL/400)*(93.2/95),SPA_DOWN_TSP_PER_OZ=6;
 const $=id=>document.getElementById(id),num=v=>v===''||v==null?null:Number(v),pad=n=>String(n).padStart(2,'0');
@@ -123,7 +123,7 @@ function conditionUI(){$('airMinutesField').hidden=$('jetAirUse').value!=='mixed
 $('jetAirUse').onchange=conditionUI;$('coverCondition').onchange=conditionUI;conditionUI();
 $('soakForm').addEventListener('submit',e=>{const minutes=num($('airMinutes').value);if($('jetAirUse').value==='mixed'&&minutes!=null&&minutes>Number($('minutes').value)){e.preventDefault();e.stopImmediatePropagation();alert('Minutes with air on cannot exceed the soak duration.')}},true);
 const saveWithConditions=save;
-save=function(events,message,autoSync=true){saveWithConditions(events,message,autoSync);if(message==='Soak saved'){$('jetAirUse').value='';$('airMinutes').value=''}else if(message==='Chemistry saved'){for(const field of ['additionReason','waterAppearance','waterOdor','coverCondition'])$(field).value='';$('coverOpenMinutes').value='';$('circulationMinutes').value=''}conditionUI()};
+save=function(events,message,autoSync=true){saveWithConditions(events,message,autoSync);if(message==='Soak saved'){$('jetAirUse').value='air_on';$('airMinutes').value=''}else if(message==='Chemistry saved'){for(const field of ['additionReason','waterAppearance','waterOdor','coverCondition'])$(field).value='';$('coverOpenMinutes').value='';$('circulationMinutes').value=''}conditionUI()};
 
 $('soakForm').onsubmit=e=>{e.preventDefault();const ts=timestamp(e.currentTarget);save([{...base('soak',ts),bathers:Number($('bathers').value),duration_minutes:Number($('minutes').value),showered:$('showered').checked,temperature_f:Number($('temperature').value),notes:text($('soakNotes').value)}],'Soak saved');$('soakNotes').value='';fillNow()};
 const products=['7.5% liquid bleach','Dichlor','Leisure Time Spa Down','Baking soda','Boric acid','Calcium increaser','Other'],units=['fl oz','tbsp','tsp','cup','oz by weight','grams'];
