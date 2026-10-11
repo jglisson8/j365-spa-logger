@@ -55,16 +55,24 @@
       <select id="maintenanceActivity">
         <option value="filter_rinse">Filter rinse</option><option value="filter_clean">Filter deep clean</option><option value="filter_swap">Filter swap</option><option value="filter_replace">Filter replacement</option>
         <option value="uv_bulb_replace">CLEARRAY UV bulb replacement</option><option value="quartz_sleeve_clean">Quartz sleeve cleaning</option><option value="quartz_sleeve_replace">Quartz sleeve replacement</option>
-        <option value="water_change_full">Full water change</option><option value="water_change_partial">Partial water change</option><option value="water_top_off">Water top-off</option>
+        <option value="water_change_full">New fill (full water change)</option><option value="water_change_partial">Partial water change</option><option value="water_top_off">Water top-off</option>
         <option value="inspection">General inspection</option><option value="equipment_repair">Equipment repair</option><option value="equipment_replace">Equipment replacement</option><option value="custom">Other</option>
       </select>
       <div id="filterFields"><label>Filter set</label><select id="filterSet"><option>A</option><option>B</option><option>Unknown</option></select></div>
       <div id="waterFields" hidden><div class="two"><div><label>Gallons</label><input id="gallons" type="number" step="0.1" min="0"></div><div><label>Water source</label><select id="waterSource"><option value="unsoftened">Unsoftened</option><option value="softened">Softened</option><option value="mixed">Mixed</option><option value="unknown">Unknown</option></select></div></div></div>
+      <div id="newFillFields" hidden>
+        <div class="subhead">New fill workflow</div>
+        <div class="inline"><input id="tubPurged" type="checkbox"><label for="tubPurged">Tub purged or cleaned before refill</label></div>
+        <label>Cleaning or purge product</label><input id="purgeProduct" maxlength="200" placeholder="Optional">
+        <div class="subhead">Initial fill chemistry <span class="help">— before balancing chemicals</span></div>
+        <div class="two"><div><label>pH</label><input id="fillPh" type="number" step="0.1" min="0" max="14"></div><div><label>TA (ppm)</label><input id="fillTa" type="number" step="1" min="0"></div><div><label>CH (ppm)</label><input id="fillCh" type="number" step="1" min="0"></div><div><label>FC (ppm)</label><input id="fillFc" type="number" step="0.1" min="0"></div><div><label>Water temperature °F</label><input id="fillTemp" type="number" step="0.1" min="32" max="120"></div></div>
+        <div class="help">You can leave these blank and record chemistry later, but measurements entered here are permanently linked to this fill cycle.</div>
+      </div>
       <div id="equipmentFields" hidden><label>Component / brand / model</label><input id="component" maxlength="200"></div>
       <div id="customFields" hidden><label>Activity description</label><input id="customActivity" maxlength="200"></div>
       <label>Cost (optional)</label><input id="maintenanceCost" type="number" step="0.01" min="0">
       <label>Notes</label><textarea id="maintenanceNotes" placeholder="Cleaner used, condition, findings, etc."></textarea>
-      <button class="primary" type="submit">Save maintenance</button>
+      <button class="primary" id="saveMaintenance" type="submit">Save maintenance</button>
     </form>
   </section>
 
@@ -74,11 +82,14 @@
   <div class="panel" id="history"></div>
 
 <script>
-const APP_VERSION='6.0.4',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2';
+const APP_VERSION='6.1.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
 const SPA_DOWN_OZ_PER_DROP=0.49*(VOLUME_GAL/400)*(93.2/95),SPA_DOWN_TSP_PER_OZ=6;
 const $=id=>document.getElementById(id),num=v=>v===''||v==null?null:Number(v),pad=n=>String(n).padStart(2,'0');
-let session=null,config=null,syncing=false;
+function readConfigState(){try{return JSON.parse(localStorage.getItem(CONFIG_KEY)||'null')}catch{return null}}
+function writeConfigState(value,pending=false){localStorage.setItem(CONFIG_KEY,JSON.stringify({config:value,pending}))}
+const savedConfigState=readConfigState();
+let session=null,config=savedConfigState?.config??null,configPending=savedConfigState?.pending===true,syncing=false;
 function localNow(){const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`}
 function fillNow(){const n=localNow();document.querySelectorAll('.date').forEach(x=>x.value=n.slice(0,10));document.querySelectorAll('.time').forEach(x=>x.value=n.slice(11))}
 function timestamp(form){return form.querySelector('.date').value+'T'+form.querySelector('.time').value}
@@ -94,7 +105,7 @@ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>setTab(b.data
 function label(e){if(e.type==='soak')return `${e.bathers} bather(s), ${e.duration_minutes} min, ${e.temperature_f||'?'}°F`;if(e.type==='chemistry')return [['FC',e.fc_ppm],['CC',e.cc_ppm],['pH',e.ph],['TA',e.ta_ppm],['CH',e.ch_ppm],['CYA',e.cya_ppm]].filter(x=>x[1]!=null).map(x=>x.join(' ')).join(', ');if(e.type==='chemical_addition')return `${e.amount} ${e.unit} ${e.product}`;if(e.type==='maintenance')return e.activity.replaceAll('_',' ')+(e.filter_set?` — filter ${e.filter_set}`:'');if(e.type==='water_change')return `${e.full?'Full':'Partial'} water change${e.gallons?` — ${e.gallons} gal`:''}`;if(e.type==='water_top_off')return `Top-off — ${e.gallons} gal`;return e.notes||e.type}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function render(){const events=read().sort((a,b)=>b.timestamp.localeCompare(a.timestamp));$('history').innerHTML=events.length?events.slice(0,50).map(e=>`<div class="entry"><small>${esc(e.timestamp.replace('T',' '))}</small><strong>${esc(e.type.replaceAll('_',' '))} — ${esc(label(e))}</strong>${e.notes?`<small>${esc(e.notes)}</small>`:''}</div>`).join(''):'No events yet.'}
-function save(events,message){write(merge(read(),events));render();$('toast').textContent=`✓ ${message}`;setTimeout(()=>$('toast').textContent='',3500);syncMonths([...new Set(events.map(e=>e.timestamp.slice(0,7)))])}
+function save(events,message,autoSync=true){write(merge(read(),events));render();$('toast').textContent=`✓ ${message}`;setTimeout(()=>$('toast').textContent='',3500);if(autoSync)syncMonths([...new Set(events.map(e=>e.timestamp.slice(0,7)))])}
 function base(type,ts){return {id:id(),schema_version:SCHEMA_VERSION,app_version:APP_VERSION,type,timestamp:ts,created_at:localNow(),fill_cycle_id:config?.current_fill_cycle_id??null}}
 
 $('soakForm').onsubmit=e=>{e.preventDefault();const ts=timestamp(e.currentTarget);save([{...base('soak',ts),bathers:Number($('bathers').value),duration_minutes:Number($('minutes').value),showered:$('showered').checked,temperature_f:Number($('temperature').value),notes:text($('soakNotes').value)}],'Soak saved');$('soakNotes').value='';fillNow()};
@@ -105,16 +116,35 @@ function calculate(){const out=[],fc=num($('fc').value),target=num($('targetFc')
 ['fc','ph','targetFc','targetPh','acidDrops'].forEach(k=>$(k).addEventListener('input',calculate));
 $('chemistryForm').onsubmit=e=>{e.preventDefault();const ts=timestamp(e.currentTarget),notes=text($('chemNotes').value),m={};for(const [id,key] of [['fc','fc_ppm'],['cc','cc_ppm'],['ph','ph'],['ta','ta_ppm'],['ch','ch_ppm'],['cya','cya_ppm']]){const value=num($(id).value);if(value!=null)m[key]=value}const demandDrops=num($('acidDrops').value);if(demandDrops!=null&&m.ph==null){alert('Enter the measured pH with the acid-demand result.');return}if(demandDrops!=null){m.acid_demand_drops=demandDrops;m.acid_demand_target_ph=num($('targetPh').value);m.calculation_version='taylor-dry-acid-400gal-v1'}const events=[];if(Object.keys(m).length)events.push({...base('chemistry',ts),...m,notes});for(const row of document.querySelectorAll('.dose-row')){const amount=num(row.querySelector('.amount').value);if(!(amount>0)){alert('Enter a positive dose amount or remove the row.');return}events.push({...base('chemical_addition',e.currentTarget.querySelector('.date').value+'T'+row.querySelector('.doseTime').value),product:row.querySelector('.product').value,amount,unit:row.querySelector('.unit').value,notes})}if(!events.length&&notes)events.push({...base('note',ts),notes});if(!events.length){alert('Enter a measurement, addition, or note.');return}save(events,'Chemistry saved');document.querySelectorAll('#chemistryForm input:not(.date):not(.time)').forEach(x=>{if(x.id!=='targetFc')x.value=''});$('doses').innerHTML='';$('chemNotes').value='';calculate();fillNow()};
 
-function maintenanceUI(){const a=$('maintenanceActivity').value,g=$('gallons');$('filterFields').hidden=!a.startsWith('filter_');$('waterFields').hidden=!a.startsWith('water_');$('equipmentFields').hidden=!['uv_bulb_replace','quartz_sleeve_clean','quartz_sleeve_replace','inspection','equipment_repair','equipment_replace'].includes(a);$('customFields').hidden=a!=='custom';if(a==='water_change_full'&&!g.value){g.value=VOLUME_GAL;g.dataset.defaulted='true'}else if(a!=='water_change_full'&&g.dataset.defaulted==='true'){g.value='';delete g.dataset.defaulted}}
+function maintenanceUI(){const a=$('maintenanceActivity').value,g=$('gallons'),isNewFill=a==='water_change_full';$('filterFields').hidden=!a.startsWith('filter_');$('waterFields').hidden=!a.startsWith('water_');$('newFillFields').hidden=!isNewFill;$('equipmentFields').hidden=!['uv_bulb_replace','quartz_sleeve_clean','quartz_sleeve_replace','inspection','equipment_repair','equipment_replace'].includes(a);$('customFields').hidden=a!=='custom';$('saveMaintenance').textContent=isNewFill?'Start new fill cycle':'Save maintenance';if(isNewFill&&!g.value){g.value=VOLUME_GAL;g.dataset.defaulted='true'}else if(!isNewFill&&g.dataset.defaulted==='true'){g.value='';delete g.dataset.defaulted}}
 $('maintenanceActivity').onchange=maintenanceUI;maintenanceUI();
 $('gallons').addEventListener('input',()=>delete $('gallons').dataset.defaulted);
-$('maintenanceForm').onsubmit=e=>{e.preventDefault();const ts=timestamp(e.currentTarget),a=$('maintenanceActivity').value,notes=text($('maintenanceNotes').value),cost=num($('maintenanceCost').value),gallons=num($('gallons').value);if((a==='water_top_off'||a==='water_change_partial')&&!(gallons>0)){alert('Enter the estimated gallons added or replaced.');return}let event;if(a==='water_change_full'||a==='water_change_partial'){event={...base('water_change',ts),full:a==='water_change_full',gallons,new_fill_cycle_id:a==='water_change_full'?`fill-${ts.slice(0,10)}-${id().slice(0,8)}`:undefined,notes}}else if(a==='water_top_off'){event={...base('water_top_off',ts),gallons,water_source:$('waterSource').value,softened:$('waterSource').value==='softened',notes}}else{event={...base('maintenance',ts),activity:a,notes};if(a.startsWith('filter_'))event.filter_set=$('filterSet').value;if($('component').value)event.component=text($('component').value,200);if(a==='uv_bulb_replace')event.brand_model=text($('component').value,200);if(a==='custom')event.custom_activity=text($('customActivity').value,200);if(cost!=null)event.cost=cost}save([event],'Maintenance saved');e.currentTarget.reset();fillNow();maintenanceUI()};
+$('maintenanceForm').onsubmit=async e=>{
+  e.preventDefault();
+  const form=e.currentTarget,ts=timestamp(form),a=$('maintenanceActivity').value,notes=text($('maintenanceNotes').value),cost=num($('maintenanceCost').value),gallons=num($('gallons').value);
+  if(a.startsWith('water_')&&!(gallons>0)){alert('Enter the estimated gallons added or replaced.');return}
+  if(a==='water_change_full'){
+    const previousFillId=config?.current_fill_cycle_id??null,newFillId=`fill-${ts.slice(0,10)}-${id().slice(0,8)}`,source=$('waterSource').value,events=[];
+    if($('tubPurged').checked){events.push({...base('maintenance',ts),fill_cycle_id:previousFillId,activity:'custom',custom_activity:'Tub purge and cleaning',product:text($('purgeProduct').value,200),notes})}
+    events.push({...base('water_change',ts),fill_cycle_id:previousFillId,full:true,gallons,water_source:source,new_fill_cycle_id:newFillId,notes});
+    const initial={};for(const [field,key] of [['fillPh','ph'],['fillTa','ta_ppm'],['fillCh','ch_ppm'],['fillFc','fc_ppm'],['fillTemp','temperature_f']]){const value=num($(field).value);if(value!=null)initial[key]=value}
+    if(Object.keys(initial).length)events.push({...base('chemistry',ts),fill_cycle_id:newFillId,...initial,measurement_context:'initial_fill_before_balancing',notes});
+    config={...(config||{schema_version:2,spa:{model:'Jacuzzi J-365',volume_gallons:VOLUME_GAL}}),current_fill_cycle_id:newFillId};configPending=true;writeConfigState(config,true);
+    save(events,'New fill cycle saved',false);
+    if(session){await syncConfig();await syncMonths([...new Set(events.map(event=>event.timestamp.slice(0,7)))])}
+  }else{
+    let event;if(a==='water_change_partial'){event={...base('water_change',ts),full:false,gallons,water_source:$('waterSource').value,notes}}else if(a==='water_top_off'){event={...base('water_top_off',ts),gallons,water_source:$('waterSource').value,softened:$('waterSource').value==='softened',notes}}else{event={...base('maintenance',ts),activity:a,notes};if(a.startsWith('filter_'))event.filter_set=$('filterSet').value;if($('component').value)event.component=text($('component').value,200);if(a==='uv_bulb_replace')event.brand_model=text($('component').value,200);if(a==='custom')event.custom_activity=text($('customActivity').value,200);if(cost!=null)event.cost=cost}
+    save([event],'Maintenance saved');
+  }
+  form.reset();fillNow();maintenanceUI();
+};
 
 async function api(path,options={}){const r=await fetch(path,options),body=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(new Error(body.error||`Request failed: ${r.status}`),{status:r.status,body});return body}
-async function connect(){try{session=await api('/api/me');$('identity').textContent=`Connected as ${session.user}`;$('syncState').textContent='Ready';$('syncState').className='ok';config=(await api('/api/config')).config;await syncMonths([...new Set([localNow().slice(0,7),...read().map(e=>e.timestamp.slice(0,7))])])}catch(e){$('identity').innerHTML=location.hostname.endsWith('workers.dev')?'<a href="/auth/start">Sign in with GitHub</a>':'Open this app through the secure Worker URL to sync';$('syncState').textContent='Local only';$('syncState').className='warn'}}
+async function syncConfig(retry=true){if(!session||!config)return false;try{const remote=await api('/api/config');const saved=await api('/api/config',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify({sha:remote.sha,config})});configPending=false;writeConfigState(config,false);return saved.sha}catch(e){if(e.status===409&&retry)return syncConfig(false);configPending=true;writeConfigState(config,true);$('syncState').textContent='Sync pending';$('syncState').className='warn';console.error(e);return false}}
+async function connect(){try{session=await api('/api/me');$('identity').textContent=`Connected as ${session.user}`;$('syncState').textContent='Ready';$('syncState').className='ok';const remote=await api('/api/config');if(configPending&&config)await syncConfig();else{config=remote.config;writeConfigState(config,false)}await syncMonths([...new Set([localNow().slice(0,7),...read().map(e=>e.timestamp.slice(0,7))])])}catch(e){$('identity').innerHTML=location.hostname.endsWith('workers.dev')?'<a href="/auth/start">Sign in with GitHub</a>':'Open this app through the secure Worker URL to sync';$('syncState').textContent='Local only';$('syncState').className='warn'}}
 async function syncMonth(month,retry=true){const remote=await api(`/api/events?month=${month}`),local=read().filter(e=>e.timestamp.startsWith(month)),events=merge(remote.document.events,local),changed=JSON.stringify(events)!==JSON.stringify(remote.document.events);if(changed){try{await api(`/api/events?month=${month}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify({sha:remote.sha,document:{schema_version:2,year_month:month,events}})})}catch(e){if(e.status===409&&retry)return syncMonth(month,false);throw e}}write(merge(read(),remote.document.events));return events.length}
 async function syncMonths(months){if(!session||syncing)return;syncing=true;$('syncState').textContent='Syncing…';try{for(const month of months.sort())await syncMonth(month);render();$('syncState').textContent='Synced';$('syncState').className='ok'}catch(e){$('syncState').textContent='Sync pending';$('syncState').className='warn';console.error(e)}finally{syncing=false}}
-$('syncNow').onclick=()=>syncMonths([...new Set([localNow().slice(0,7),...read().map(e=>e.timestamp.slice(0,7))])]);
+$('syncNow').onclick=async()=>{if(configPending)await syncConfig();await syncMonths([...new Set([localNow().slice(0,7),...read().map(e=>e.timestamp.slice(0,7))])])};
 $('copyLog').onclick=async()=>{const events=read().sort((a,b)=>a.timestamp.localeCompare(b.timestamp)),lines=['J-365 SPA LOG v2 | '+events.length+' events',...events.map(e=>`${e.timestamp}|${e.type}|${label(e)}${e.notes?'|'+e.notes:''}`)];try{await navigator.clipboard.writeText(lines.join('\n'));$('toast').textContent='Copied compact log'}catch{alert('Clipboard unavailable')}};
 $('exportJson').onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify({schema_version:2,exported_at:new Date().toISOString(),events:read()},null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=`j365-backup-${localNow().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
 
