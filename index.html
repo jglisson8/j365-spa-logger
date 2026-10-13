@@ -105,7 +105,7 @@
   <dialog id="recordEditor" style="background:#18313f;color:#fff;max-width:600px;width:95%;max-height:85vh;border:1px solid #54717d;border-radius:12px"><form id="editRecordForm"><h2>Correct record</h2><p class="help">The original remains in your history. This saves a corrected replacement.</p><div id="editFields"></div><label for="editReason">Reason for correction</label><input id="editReason" required maxlength="200"><button class="primary" type="submit">Save correction</button><button class="secondary" type="button" id="cancelEdit">Cancel</button></form></dialog>
 
 <script>
-const APP_VERSION='6.18.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.18.1',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
 const SPA_DOWN_OZ_PER_DROP=0.49*(VOLUME_GAL/400)*(93.2/95),SPA_DOWN_TSP_PER_OZ=6;
 const $=id=>document.getElementById(id),num=v=>v===''||v==null?null:Number(v),pad=n=>String(n).padStart(2,'0');
@@ -421,7 +421,7 @@ $('importHistorical').onclick=async()=>{const result=$('historicalResult');try{i
 function streamlineUI(){
  const header=document.createElement('div');header.className='help';header.id='spaContext';document.querySelector('.tabs').before(header);
  $('fillSummary').hidden=true;header.appendChild($('fillSummary'));header.appendChild($('nextService'));
- const due=$('maintenanceDue').parentElement;$('tab-maintenance').appendChild(due);$('tab-home').remove();document.querySelector('[data-tab="home"]').remove();
+ const due=$('maintenanceDue').parentElement;due.id='headerMaintenance';due.querySelector('summary').textContent='All maintenance';due.style.marginTop='0';header.appendChild(due);const serviceShortcut=document.createElement('button');serviceShortcut.type='button';serviceShortcut.className='secondary';serviceShortcut.textContent='Log service';serviceShortcut.onclick=()=>setTab('maintenance');due.appendChild(serviceShortcut);$('tab-home').remove();document.querySelector('[data-tab="home"]').remove();
  const water=document.querySelector('[data-tab="chemistry"]');water.textContent='Test / dose';water.parentElement.prepend(water);setTab('chemistry');
  const style=document.createElement('style');style.textContent='.tabs{grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}.tabs button{font-size:13px;min-height:44px}#spaContext p{margin:4px 0}summary{min-height:44px}.entry summary{line-height:1.5}.entry time{display:block;color:#aac4ce;font-size:12px}.status{font-size:12px}';document.head.appendChild(style);
  document.querySelector('body > .muted').remove();
@@ -456,6 +456,7 @@ input,select,textarea{background:#0e1c27;border-color:#334a59;border-radius:9px;
 @media(max-width:430px){body{padding:18px 12px 45px}.panel{padding:18px 15px}.brand{gap:10px}.brand-mark{width:40px;height:40px}.brand-model{font-size:9px}h1{font-size:23px}.tabs button{font-size:12px!important}.actions{flex-wrap:wrap}.actions button{flex:1 1 120px}#spaContext{display:block}#spaContext p+p{margin-top:3px!important}}
 .tabs button[data-tab]{background:#152733;color:#a6bdca;border:1px solid #2c4351;position:relative}.tabs button[data-tab]:hover{background:#203642}.tabs button[data-tab].active,.tabs button[data-tab].active:hover{background:#79d6c2;color:#082a29;border-color:#a4ecdc;box-shadow:inset 0 -3px 0 #2e8a79;font-weight:750}.tabs button[data-tab].active:after{content:'';position:absolute;bottom:-6px;left:calc(50% - 10px);width:20px;height:3px;border-radius:3px;background:#79d6c2}
 .brand-mark.logo-mark{width:86px;height:70px;background:transparent;border:0;border-radius:0;overflow:hidden;flex-shrink:0}.logo-mark img{display:block;width:100%;height:100%;object-fit:contain;transform:scale(1.28)}@media(max-width:430px){.brand-mark.logo-mark{width:64px;height:56px}.brand{gap:8px}.eyebrow{font-size:9px;letter-spacing:.12em}}
+#headerMaintenance{flex-basis:100%;font-size:12px}#headerMaintenance summary{min-height:30px;padding:4px 0;color:#8fd7c6;font-size:12px}#headerMaintenance[open]{padding:8px 12px;margin-top:6px!important;background:#142a35;border:1px solid #2b4653;border-radius:9px}#headerMaintenance #maintenanceDue p{padding:6px 0;line-height:1.5}#headerMaintenance .secondary{margin-top:10px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 `;document.head.appendChild(polishedStyle);
 migrateLegacy();fillNow();render();calculate();connect();
