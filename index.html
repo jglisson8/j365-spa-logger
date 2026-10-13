@@ -105,7 +105,7 @@
   <dialog id="recordEditor" style="background:#18313f;color:#fff;max-width:600px;width:95%;max-height:85vh;border:1px solid #54717d;border-radius:12px"><form id="editRecordForm"><h2>Correct record</h2><p class="help">The original remains in your history. This saves a corrected replacement.</p><div id="editFields"></div><label for="editReason">Reason for correction</label><input id="editReason" required maxlength="200"><button class="primary" type="submit">Save correction</button><button class="secondary" type="button" id="cancelEdit">Cancel</button></form></dialog>
 
 <script>
-const APP_VERSION='6.15.3',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.16.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
 const SPA_DOWN_OZ_PER_DROP=0.49*(VOLUME_GAL/400)*(93.2/95),SPA_DOWN_TSP_PER_OZ=6;
 const $=id=>document.getElementById(id),num=v=>v===''||v==null?null:Number(v),pad=n=>String(n).padStart(2,'0');
@@ -418,6 +418,28 @@ renderCharts=function(events){preciseCharts(events)};
 // Kept separate so future models cannot accidentally learn from maximum-dose assumptions.
 function trainingEvents(){return activeEvents().filter(e=>!e.historical?.exclude_from_training)}
 $('importHistorical').onclick=async()=>{const result=$('historicalResult');try{if(!session)throw new Error('Sign in before importing.');const health=await api('/health');if(Number(health.version)<3.3)throw new Error('Deploy Worker 3.3 before importing historical records.');const file=$('historicalFile').files[0];if(!file)throw new Error('Select the prepared historical JSON first.');if(file.size>900000)throw new Error('Import file too large.');const batch=JSON.parse(await file.text());if(!Array.isArray(batch.events)||batch.events.length>5000||!batch.import_id)throw new Error('Invalid historical package.');const months=[...new Set(batch.events.map(e=>{if(!e.timestamp||!e.historical||e.historical.import_id!==batch.import_id||e.historical.exclude_from_training!==true)throw new Error('Missing provenance or timestamp.');return e.timestamp.slice(0,7)}))];for(const month of months)await syncMonth(month);const existing=new Set(read().map(e=>e.id)),pending=batch.events.filter(e=>!existing.has(e.id));for(const event of pending){if(!['reconstructed','timestamped_context','assumed_added'].includes(event.historical.status))throw new Error('Invalid confidence label.')}write(merge(read(),pending));render();await syncMonths(months);const ack=new Set(JSON.parse(localStorage.getItem('j365_backed_up_ids')||'[]'));result.textContent=`${pending.length} records imported; ${batch.events.length-pending.length} existing records skipped. `+(pending.every(e=>ack.has(e.id))?'Backed up successfully.':'Saved locally; backup pending.');}catch(e){result.textContent=e.message}};
+function streamlineUI(){
+ const header=document.createElement('div');header.className='help';header.id='spaContext';document.querySelector('.tabs').before(header);
+ $('fillSummary').hidden=true;header.appendChild($('fillSummary'));header.appendChild($('nextService'));
+ const due=$('maintenanceDue').parentElement;$('tab-maintenance').appendChild(due);$('tab-home').remove();document.querySelector('[data-tab="home"]').remove();
+ const water=document.querySelector('[data-tab="chemistry"]');water.textContent='Test / dose';water.parentElement.prepend(water);setTab('chemistry');
+ const style=document.createElement('style');style.textContent='.tabs{grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}.tabs button{font-size:13px;min-height:44px}#spaContext p{margin:4px 0}summary{min-height:44px}.entry summary{line-height:1.5}.entry time{display:block;color:#aac4ce;font-size:12px}.status{font-size:12px}';document.head.appendChild(style);
+ document.querySelector('body > .muted').remove();
+ const borateField=$('borates').parentElement;borateField.hidden=true;
+ const trends=$('tab-trends'),options=document.createElement('details');options.innerHTML='<summary>Chart settings</summary>';trends.insertBefore(options,$('trendCharts'));
+ options.appendChild($('trendActivity').closest('label'));options.appendChild($('fcTarget').closest('.two'));
+ const chem=$('chemistryForm');chem.querySelector('.help').textContent='Taylor K-2006 · enter only what you tested.';
+ const dose=$('recommendations').closest('details');dose.querySelector('summary').textContent='Add chemicals / calculate dose';dose.querySelector('.help').textContent='Log calculated dose saves the test and actual addition. Otherwise enter an addition below.';
+ const tools=document.createElement('details');tools.className='panel';tools.innerHTML='<summary>Sync, backup and older records</summary>';$('tab-history').appendChild(tools);
+ tools.appendChild($('syncNow').parentElement);tools.appendChild($('historicalFile').closest('details'));
+ for(const id of ['historyMonth','loadHistoryMonth','showOriginals']){const el=$(id);if(id==='showOriginals')tools.appendChild(el.closest('label'));else{if(el.previousElementSibling?.tagName==='LABEL')tools.appendChild(el.previousElementSibling);tools.appendChild(el)}}
+ const previousRender=render;render=function(){previousRender();
+  const fill=activeEvents().filter(e=>e.type==='water_change'&&e.full&&e.timestamp<=localNow()).sort((a,b)=>b.timestamp.localeCompare(a.timestamp))[0];
+  let age=$('waterAge');if(!age){age=document.createElement('p');age.id='waterAge';header.prepend(age)}age.textContent=fill?'Water age: '+daysSince(fill.timestamp)+' days':'Water age: record a new fill';
+  for(const entry of $('history').querySelectorAll('.entry')){const summary=entry.querySelector('summary'),small=entry.querySelector('small');if(summary&&small){const time=document.createElement('time');time.textContent=small.textContent;summary.prepend(time);small.remove()}}
+ };
+}
+streamlineUI();
 migrateLegacy();fillNow();render();calculate();connect();
 </script>
 </body>
