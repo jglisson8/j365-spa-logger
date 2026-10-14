@@ -105,7 +105,7 @@
   <dialog id="recordEditor" style="background:#18313f;color:#fff;max-width:600px;width:95%;max-height:85vh;border:1px solid #54717d;border-radius:12px"><form id="editRecordForm"><h2>Correct record</h2><p class="help">The original remains in your history. This saves a corrected replacement.</p><div id="editFields"></div><label for="editReason">Reason for correction</label><input id="editReason" required maxlength="200"><button class="primary" type="submit">Save correction</button><button class="secondary" type="button" id="cancelEdit">Cancel</button></form></dialog>
 
 <script>
-const APP_VERSION='6.24.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.24.1',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
 const SPA_DOWN_OZ_PER_DROP=0.49*(VOLUME_GAL/400)*(93.2/95),SPA_DOWN_TSP_PER_OZ=6;
 const $=id=>document.getElementById(id),num=v=>v===''||v==null?null:Number(v),pad=n=>String(n).padStart(2,'0');
@@ -267,16 +267,16 @@ function balanceProjection(events,key){
  for(const e of later){const time=modelTime(e);if(time==null){p.horizon=Math.min(p.horizon,chartTime(e));p.blocked=true;p.status='Unknown activity time; a new sample is needed';break}if(time>p.horizon)break;
   let v=balanceValue(p,time),reason='';const product=String(e.product||''),acid=/^(leisure time spa down|spa down|dry acid|sodium bisulfate)$/i.test(product),baking=/^(baking soda|sodium bicarbonate)$/i.test(product),mass=balanceDoseMass(e);
   if(e.type==='water_change'||e.type==='water_top_off')reason='Water replacement needs a new sample';
-  else if(e.type==='soak'&&key==='ph')reason='Aeration response is not calibrated yet';
+  else if(e.type==='soak'&&key==='ph'&&e.jet_air_use!=='water_only')reason='Aeration response is not calibrated yet';
   else if(e.type==='chemical_addition'){
    if(key==='ta_ppm'&&(acid||baking)&&theoreticalTaChange(e,events)!=null){const factor=taResponseCalibration(framework,events,e.product);v+=theoreticalTaChange(e,events)*factor;p.status=factor===1?'Dose-based TA estimate':'Calibrated dose-based TA estimate'}
    else if(key==='ph'&&acid&&mass!=null){
     const drops=sample.acid_demand_drops,target=sample.acid_demand_target_ph,required=drops*.49*(fillVolume(events,e.timestamp)/400)*(93.2/95)*28.3495;
     const learned=framework.responses.find(g=>g.ready&&g.product===e.product&&g.unit===e.unit&&g.borate_band===framework.borates.band);
     if(learned){v+=learned.ph*e.amount;p.status='Learned acid-response estimate'}
-    else if(drops>0&&Number.isFinite(target)&&target<sample.ph){acidTotal+=mass;if(Math.abs(acidTotal-required)/required<=.05){v=target;p.status='Taylor acid-demand endpoint estimate'}else reason='Partial or excess acid dose: pH endpoint needs a new sample'}
+    else if(drops>0&&Number.isFinite(target)&&target<sample.ph){acidTotal+=mass;if(Math.abs(acidTotal-required)/required<=.1){v=target;p.status='Taylor acid-demand endpoint estimate (approximate volume dose)'}else reason='Partial or excess acid dose: pH endpoint needs a new sample'}
     else reason='Acid demand or calibrated response needed for pH';
-   }else if(key==='ph'&&/^calcium increaser|calcium chloride$/i.test(product)){}else reason='This addition is not calibrated for '+(key==='ph'?'pH':'TA');
+   }else if(key==='ta_ppm'&&/bleach|liquid.*chlorine|hypochlorite/i.test(product)){p.status='Acid/baking-soda TA estimate; transient bleach effects omitted'}else if(key==='ph'&&/^(calcium increaser|calcium chloride)$/i.test(product)){}else reason='This addition is not calibrated for '+(key==='ph'?'pH':'TA');
   }
   if(reason){p.horizon=time;p.blocked=true;p.status=reason;break}if(!Number.isFinite(v)||v<0||(key==='ph'&&(v<6||v>9))){p.horizon=time;p.blocked=true;p.status='Estimate outside supported range; test again';break}points.push({t:time,v,rate:parameter?.ready?parameter.rate:0});
  }
