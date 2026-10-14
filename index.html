@@ -105,7 +105,7 @@
   <dialog id="recordEditor" style="background:#18313f;color:#fff;max-width:600px;width:95%;max-height:85vh;border:1px solid #54717d;border-radius:12px"><form id="editRecordForm"><h2>Correct record</h2><p class="help">The original remains in your history. This saves a corrected replacement.</p><div id="editFields"></div><label for="editReason">Reason for correction</label><input id="editReason" required maxlength="200"><button class="primary" type="submit">Save correction</button><button class="secondary" type="button" id="cancelEdit">Cancel</button></form></dialog>
 
 <script>
-const APP_VERSION='6.23.1',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.23.2',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
 const SPA_DOWN_OZ_PER_DROP=0.49*(VOLUME_GAL/400)*(93.2/95),SPA_DOWN_TSP_PER_OZ=6;
 const $=id=>document.getElementById(id),num=v=>v===''||v==null?null:Number(v),pad=n=>String(n).padStart(2,'0');
@@ -514,6 +514,7 @@ function streamlineUI(){
 }
 streamlineUI();
 const polishedStyle=document.createElement('style');polishedStyle.textContent=`
+.chart-readout{box-sizing:border-box;height:104px;max-height:104px;overflow:auto;overflow-wrap:anywhere;line-height:22px;contain:layout size}
 :root{color-scheme:dark;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b151f;color:#e8f0f5}
 body{max-width:800px;padding:28px 20px 60px;background:radial-gradient(ellipse at top right,#17313b55,transparent 60%);min-height:100vh;line-height:1.45}
 .brand{display:flex;align-items:center;gap:13px;margin:0 0 22px}.brand-mark{display:grid;place-items:center;width:46px;height:46px;border-radius:14px;background:#163a40;border:1px solid #2e6066;color:#73dacb;font-size:38px;line-height:1}.eyebrow{font-size:10px;letter-spacing:.18em;color:#90abb9;margin:0 0 3px;font-weight:700}h1{font-size:25px;letter-spacing:-.035em;margin:0;font-weight:750}h1 span{font-weight:400;color:#b2c7d4}.brand-model{margin-left:auto;font-size:10px;letter-spacing:.12em;color:#93b5c2;border:1px solid #304553;padding:5px 8px;border-radius:6px;white-space:nowrap}
