@@ -1,0 +1,24 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),crypto=require('node:crypto');process.env.TZ='America/Denver';
+let source=fs.readFileSync(require('node:path').join(__dirname,'../index.html'),'utf8').match(/<script>([\s\S]*)<\/script>/)[1];
+for(const call of ['setupFriendlyUI();','streamlineUI();','setupEnvironmentLogging();setupEvaporationUI();setupWeatherLogging();setupAutomaticForecastChecks();','setupPhIntervalUI();','setupTaIntervalUI();','setupChartBoundsUI();','setupChartScreen();','setupBakingCalculator();','setupActionGuidance();','migrateLegacy();fillNow();render();calculate();connect();'])source=source.replace(call,'');
+const now=Date.parse('2026-10-20T15:00-06:00'),storage=new Map(),elements=new Map();class Clock extends Date{constructor(...a){super(...(a.length?a:[now]))}static now(){return now}}
+const element=id=>{if(!elements.has(id))elements.set(id,{value:'',checked:false,hidden:false,innerHTML:'',textContent:'',dataset:{},appendChild(){},insertBefore(){},insertAdjacentHTML(_,s){this.innerHTML+=s},addEventListener(){},querySelectorAll(){return []},querySelector(){return {value:'2026-10-20'}},showModal(){},close(){}});return elements.get(id)};
+const c={console,Date:Clock,Math,JSON,Number,Set,Map,Error,crypto,localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)},document:{getElementById:element,querySelectorAll:()=>[],createElement:()=>({...element('generated'),style:{}}),body:{appendChild(){}},head:{appendChild(){}}},setTimeout(){},alert(){},confirm:()=>true,location:{hostname:'localhost'},navigator:{}};vm.createContext(c);vm.runInContext(source,c);const run=s=>vm.runInContext(s,c);
+element('fcMinimum').value='1';element('fcTarget').value='5';
+const fill={id:'date-only-fill',type:'water_change',full:true,timestamp:'2026-09-12',date_precision:'date_only',historical:true,new_fill_cycle_id:'cycle',gallons:395,starting_cya_ppm:30,starting_borates_ppm:40};
+c.events=[fill,{id:'before',type:'chemistry',timestamp:'2026-10-19T17:24',fill_cycle_id:'cycle',ph:8,ta_ppm:140,fc_ppm:6},{id:'acid',type:'chemical_addition',timestamp:'2026-10-19T17:30',fill_cycle_id:'cycle',product:'Leisure Time Spa Down',amount:6,unit:'tbsp'},{id:'retest',type:'chemistry',timestamp:'2026-10-19T17:44',fill_cycle_id:'cycle',ph:7.3,fc_ppm:6}];
+c.events.push({id:'current-fc',type:'chemistry',timestamp:'2026-10-20T14:59',fill_cycle_id:'cycle',fc_ppm:3});
+const original=JSON.stringify(c.events),ctx=run('actionContext(events)'),ta=run("balanceProjection(events,'ta_ppm').current"),ph=run("balanceProjection(events,'ph').current");
+assert.equal(ctx.fill,'cycle');assert.equal(ctx.facts.ta_ppm.kind,'estimate');assert.ok(Math.abs(ctx.facts.ta_ppm.value-ta)<1e-9);assert.ok(Math.abs(ctx.facts.ph.value-ph)<1e-9);assert.equal(ctx.pendingBalance,true);
+assert.equal(run('buildActionPlan(actionContext(events)).cards.length'),0,'An unmeasured TA retest must not create a recommendation when estimates are in range');
+run('write(events);renderActionGuidance()');assert.match(element('nextActions').innerHTML,/Things look good—enjoy the tub/);assert.doesNotMatch(element('nextActions').innerHTML,/data-action-focus|data-action-defer|Check the last balancing/);
+// Pending sanitizer checks alone are not an action, but unknown/low/high FC remains actionable.
+c.base=ctx;const pending=run('buildActionPlan({...base,pendingSanitizer:true})');assert.equal(pending.cards.length,0);
+for(const [kind,value,id]of [['sample',.5,'fc-low'],['estimate',.5,'fc-low'],['sample',11,'fc-high'],['unknown',null,'fc-unknown']]){c.fc={kind,value,lo:value,hi:value};assert.ok(run('buildActionPlan({...base,facts:{...base.facts,fc_ppm:fc}})').cards.some(a=>a.id===id));}
+for(const [ph,ta,expected]of [[8,120,'balance-high-in'],[7.5,60,'balance-in-low'],[7,60,'balance-low-low']]){c.p=ph;c.ta=ta;c.expected=expected;assert.ok(run("buildActionPlan({...base,facts:{...base.facts,ph:{kind:'sample',value:p},ta_ppm:{kind:'sample',value:ta}}}).cards.some(a=>a.id===expected)"));}
+// Deferring an actual problem must never render an all-clear.
+run("write([...events,{id:'low',type:'chemistry',timestamp:'2026-10-20T14:59',fill_cycle_id:'cycle',fc_ppm:.5}]);renderActionGuidance()");
+const current=run('actionContext(activeEvents())'),plan=run('buildActionPlan(actionContext(activeEvents()))');c.deferId=plan.cards[0].id;c.deferContext=current;
+storage.set('j365_deferred_actions_v1',JSON.stringify([{id:plan.cards[0].id,signature:run('actionSignature(deferContext,deferId)')}]));run('renderActionGuidance()');assert.match(element('nextActions').innerHTML,/Suggestions deferred/);assert.doesNotMatch(element('nextActions').innerHTML,/enjoy the tub/);
+assert.equal(JSON.stringify(c.events),original);
+console.log('PASS: date-only/historical fill retained, Trends parity, quiet in-range partial retests, real alerts, no false all-clear after deferral and unchanged records');

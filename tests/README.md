@@ -35,3 +35,7 @@ Scenario ranges separately vary nonnegative gas rates, a working ±0.1-pH readin
 ## Compact chart presentation (6.46)
 
 Run `node tests/compact-charts.test.cjs`. FC, pH, TA and CH now share a short value/target summary. Threshold timing is displayed only where supported; CH remains sample-only and TA does not invent drift. Long model explanations and sample counts are inside a closed-by-default Model details disclosure below each chart. Paused forecasts, conditional bounded-start scenarios and older-sample extrapolation warnings stay visible. Expanded charts use the same renderer. This is a presentation change; model calculations, calibration and historical records are unchanged.
+
+## Useful next steps (6.47)
+
+Run `node tests/action-guidance.test.cjs`. Action facts now call the same full-history projections as Trends instead of removing date-only/historical refill context first. pH also advances with the model after an hour even without a new activity. Current-fill measured facts, bounds and carried TA remain distinct from estimates. An outstanding optional retest alone no longer creates a card when the modeled values are in range. Actual out-of-range/unknown essential values, high-FC interference and water-quality concerns remain actionable. An empty plan displays “Things look good—enjoy the tub,” qualified as based on logged readings/estimates, not safety clearance. Deferred problems never produce that all-clear. Action cards show the immediate step with the explanation/sequence collapsed. Historical events and dose quantities remain unchanged.
