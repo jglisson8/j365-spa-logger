@@ -12,7 +12,7 @@ async function serveLogoAsset(request) {
   try {
     const upstream = await fetch(LOGO_ASSET_URL, {
       method: request.method,
-      redirect: 'error',
+      redirect: 'manual',
       headers: { Accept: 'image/png' }
     });
     if (!upstream.ok || upstream.headers.get('Content-Type')?.split(';')[0].trim() !== 'image/png') {
