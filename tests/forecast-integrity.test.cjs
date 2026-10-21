@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict'),{c,run,element}=require('./app-harness.cjs')();
+element('fcMinimum').value='1';element('fcTarget').value='3';
+const now=Date.parse('2026-10-02T00:00-06:00');class Clock extends Date{constructor(...a){super(...(a.length?a:[now]))}static now(){return now}}c.Date=Clock;
+c.history=[{id:'synthetic-fill',type:'water_change',timestamp:'2026-10-01T00:00',full:true,new_fill_cycle_id:'cycle',gallons:395,starting_cya_ppm:30,starting_borates_ppm:40},...[1,3,5].map(h=>({id:'synthetic-sample-'+h,type:'chemistry',timestamp:'2026-10-01T'+String(h).padStart(2,'0')+':00',fc_ppm:4*Math.exp(-.1*(h-1)),ph:7.5,ta_ppm:110,fill_cycle_id:'cycle'}))];
+c.test={id:'synthetic-holdout',type:'chemistry',timestamp:'2026-10-01T07:00',fc_ppm:2.2,ph:7.5,ta_ppm:110,fill_cycle_id:'cycle'};
+c.future={id:'synthetic-future',type:'chemistry',timestamp:'2026-10-01T09:00',fc_ppm:30,ph:8,ta_ppm:200,fill_cycle_id:'cycle'};
+const review=run('automaticForecastReview(test,history)');assert.ok(review.parameters.fc_ppm);c.review=review;
+assert.equal(JSON.stringify(run('automaticForecastReview(test,[...history,future])')),JSON.stringify(review),'Later observations cannot improve a prospective prediction');
+c.test.forecast_review=review;const frozen=JSON.stringify(review);run('write([...history,test,future])');assert.equal(run('validForecastReviews(activeEvents(),"fc_ppm").length'),1);
+c.correction={...c.history[1],id:'synthetic-correction',supersedes_event_id:c.history[1].id,fc_ppm:10};run('write(merge(read(),[correction]))');assert.equal(run('validForecastReviews(activeEvents(),"fc_ppm").length'),0,'Changed evidence invalidates frozen checks');assert.equal(JSON.stringify(review),frozen);
+run('write([...history,test,{id:"synthetic-removal",type:"note",timestamp:history[1].timestamp,supersedes_event_id:history[1].id,record_removal:true}])');assert.equal(run('validForecastReviews(activeEvents(),"fc_ppm").length'),0,'Removed evidence cannot train forecast uncertainty');
+console.log('PASS: frozen prospective FC/pH/TA checks, no future leakage, corrected/removed evidence excluded and original review unchanged');

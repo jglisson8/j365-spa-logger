@@ -1,0 +1,13 @@
+{
+  "name": "j365-spa-logger",
+  "version": "6.50.0",
+  "private": true,
+  "description": "Static spa logger regression tooling; no production runtime dependencies",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "test": "node scripts/test.cjs",
+    "build:time": "node scripts/build-time.cjs",
+    "check:generated": "node scripts/build-time.cjs --check"
+  },
+  "devDependencies": { "jsdom": "30.1.2" }
+}

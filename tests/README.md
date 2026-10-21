@@ -49,3 +49,7 @@ Names are stored under `maintenance.filter_set_labels`, retaining A/B IDs in `fi
 ## Product library (6.49)
 
 Run `node tests/products.test.cjs`. Run `node tests/products-ui.test.cjs` with jsdom installed (in this workspace: `NODE_PATH=../ui-test/node_modules node tests/products-ui.test.cjs`). Tests cover density units, concentration bases, legacy parity, missing-data restrictions, supported dry-acid response, log-only muriatic acid, frozen product revisions in drafts/final doses/corrections, calibration isolation, CYA/borates, calculator defaults, archive behavior, escaping and conflict-safe private sync. See [product-library.md](../docs/product-library.md) for the schema and operating limits.
+
+## Running the complete suite (6.50)
+
+Use Node.js 24 and run `npm ci` followed by `npm test` from the repository root. This includes the existing regressions above, portable jsdom UI tests and new timezone, field-conflict, save-pipeline and prospective-forecast checks. CI runs the same command. Fixtures are synthetic; no private export is required. See [the reliability audit](../docs/reliability-6.50.md) for contracts and limitations.
