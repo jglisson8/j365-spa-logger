@@ -7,7 +7,7 @@ vm.createContext(context);vm.runInContext(source,context);
 const overview=(p,key,points=[])=>context.chartOverview(p,key,points,now),projection={kind:'balance',key:'ph',current:7.5,status:'Detailed equilibrium assumptions',assumptions:['Keep this long explanation collapsed'],horizon:now+72*3600000,points:[{rate:0}],testRate:.05};
 for(const key of Object.keys(bounds)){
  const p={...projection,key,current:(bounds[key].lower+bounds[key].upper)/2,...(key==='fc_ppm'?{cross:now+18*3600000,model:{}}:{})},summary=overview(p,key),details=context.chartModelDetails(p,key,12);
- assert.match(summary,/class="chart-summary"/);assert.match(summary,/Target /);assert.doesNotMatch(summary,/Detailed equilibrium|long explanation|12 sample/);
+ assert.match(summary,/class="chart-summary"/);assert.match(summary,/Alerts /);assert.doesNotMatch(summary,/Detailed equilibrium|long explanation|12 sample|manufacturer.*maximum/);
  assert.match(details,/<details class="help chart-model-details"><summary>Model details<\/summary>/);assert.doesNotMatch(details,/<details[^>]*\bopen\b/);assert.match(details,/long explanation/);assert.match(details,/12 sample/);
 }
 assert.match(overview(projection,'ph'),/Upper target in ~6.0 h/);

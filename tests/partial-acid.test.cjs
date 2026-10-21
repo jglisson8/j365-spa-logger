@@ -7,7 +7,7 @@ const storage=new Map(),elements=new Map(),now=Date.parse('2026-10-19T18:00');
 class Clock extends Date{constructor(...args){super(...(args.length?args:[now]))}static now(){return now}}
 const element=id=>{if(!elements.has(id))elements.set(id,{value:'',checked:false,hidden:false,innerHTML:'',textContent:'',dataset:{},appendChild(){},insertBefore(){},insertAdjacentHTML(_,s){this.innerHTML+=s},addEventListener(){},querySelectorAll(){return []},querySelector(){return {value:'2026-10-19'}},showModal(){},close(){}});return elements.get(id)};
 const context={console,Date:Clock,Math,JSON,Number,Set,Map,Error,crypto,localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)},document:{getElementById:element,querySelectorAll:()=>[],createElement:()=>({...element('generated'),style:{}}),body:{appendChild(){}},head:{appendChild(){}}},setTimeout(){},alert(){},confirm:()=>true,location:{hostname:'localhost'},navigator:{}};
-vm.createContext(context);vm.runInContext(source,context);const run=s=>vm.runInContext(s,context);
+vm.createContext(context);vm.runInContext(source,context);const run=s=>vm.runInContext(s,context);run("confirmedAcidRetestDoseId=e=>e.id===\"synthetic-retest\"?\"synthetic-acid\":null");
 const fill={id:'fill',type:'water_change',full:true,gallons:395,new_fill_cycle_id:'cycle',timestamp:'2026-09-12T12:00',starting_cya_ppm:30,starting_borates_ppm:40};
 const sample={id:'test',type:'chemistry',timestamp:'2026-10-19T17:43',fill_cycle_id:'cycle',ta_ppm:140,ph_bounds:{operator:'>=',value:8},acid_demand_drops:7,acid_demand_target_ph:7.4};
 const dose={id:'acid',type:'chemical_addition',timestamp:'2026-10-19T17:44',fill_cycle_id:'cycle',product:'Leisure Time Spa Down',amount:6,unit:'tbsp',calculation:{suggested_amount:20.1,unit:'tsp',measurement_timestamp:sample.timestamp,source_measurements:{ph_bounds:sample.ph_bounds,acid_demand_drops:7,acid_demand_target_ph:7.4}}};
@@ -35,7 +35,7 @@ context.p=p;assert.match(run('projectionSvg(p,e=>Date.parse(e.timestamp),v=>v,p.
 const history=run("calculatedChartHistory(withRetest,'ph',[{e:fixture[1],v:8,bounded:true},{e:withRetest.at(-1),v:7.7}],Date.parse(fixture[1].timestamp),Date.now())");assert.equal(history.bridges.length,0);assert.equal(history.doseEstimates[0].scenario,true);
 assert.equal(JSON.stringify(context.fixture),snapshot,'Original readings, Taylor reference and actual quantity must remain unchanged');
 // Personal acid response: known post-dose order without inventing a test time.
-const calDose={...dose,id:'6981e4eb-9782-4719-a783-256374be804e',created_at:'2026-10-19T17:44'},calRetest={id:'246b7158-6d40-44a6-b171-cdb7c7f83d2d',type:'chemistry',fill_cycle_id:'cycle',timestamp:'2026-10-19T17:44',created_at:'2026-10-19T18:02',ph:7.3};
+const calDose={...dose,id:'synthetic-acid',created_at:'2026-10-19T17:44'},calRetest={id:'synthetic-retest',type:'chemistry',fill_cycle_id:'cycle',timestamp:'2026-10-19T17:44',created_at:'2026-10-19T18:02',ph:7.3};
 context.calEvents=[fill,sample,calDose,calRetest];const calSnapshot=JSON.stringify(context.calEvents);
 const cal=run("acidDoseCalibration(calEvents,'2026-10-19T19:00')");assert.equal(cal.factor,.8);assert.equal(cal.count,1);assert.equal(cal.provisional,true);assert.equal(cal.rows[0].confirmed_same_minute,true);
 assert.equal(run("acidDoseCalibration(calEvents,'2026-10-19T18:00').factor"),1,'No look-ahead to a result saved later');

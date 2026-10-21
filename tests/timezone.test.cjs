@@ -1,0 +1,6 @@
+const assert=require('node:assert/strict'),{spawnSync}=require('node:child_process'),path=require('node:path'),time=require('../src/spa-time.js');let reference;
+for(const TZ of ['America/Denver','America/New_York','America/Los_Angeles','UTC']){const r=spawnSync(process.execPath,[path.join(__dirname,'timezone-fixture.cjs')],{env:{...process.env,TZ},encoding:'utf8'});assert.equal(r.status,0,TZ+'\n'+r.stderr);const result=JSON.parse(r.stdout);if(reference)assert.deepEqual(result,reference,TZ+' changed chemistry/time interpretation');else reference=result}
+assert.equal(time.parse('2026-03-08T02:30'),NaN);assert.equal(time.candidates('2026-11-01T01:30').length,2);assert.equal(time.parse('2026-02-30T10:00'),NaN);assert.equal(time.parse('2026-02-30T10:00Z'),NaN);
+assert.equal(time.event({timestamp:'2026-10-01T12:00',timestamp_instant:'2026-10-01T12:00Z',time_zone:time.zone}),null,'inconsistent metadata must not be trusted');
+assert.equal(time.event({timestamp:'2026-10-01T12:00Z',...time.metadata('2026-10-01T12:00Z')}),Date.parse('2026-10-01T12:00Z'));
+console.log('PASS: Denver/Eastern/Pacific/UTC identical FC/pH/TA/calibration/inventory, DST gaps/folds, date-only calendars, creation UTC, metadata validation, month boundaries and same-minute ordering');
