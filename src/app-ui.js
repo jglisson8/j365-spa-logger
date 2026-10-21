@@ -9,11 +9,11 @@ function chartUiScale(key,data,limits) {
   if(!Number.isFinite(lo)||!Number.isFinite(hi)){lo=0;hi=1;}
   const pad=Math.max((hi-lo)*.12,floor);lo=Math.max(0,lo-pad);hi+=pad;
   if(p.mode==='custom'&&Number.isFinite(p.min)&&Number.isFinite(p.max)&&p.min>=0&&p.max>p.min){lo=p.min;hi=p.max;}
-  const raw=(hi-lo)/5,power=10**Math.floor(Math.log10(Math.max(raw,.000001))),step=Math.max(floor,[1,2,2.5,5,10].map(n=>n*power).find(n=>n>=raw)||10*power);
+  const raw=(hi-lo)/5,power=10**Math.floor(Math.log10(Math.max(raw,.000001))),steps=key==='ph'?[1,2,5,10]:[1,2,2.5,5,10],step=Math.max(floor,steps.map(n=>n*power).find(n=>n>=raw)||10*power);
   const custom=p.mode==='custom'&&Number.isFinite(p.min)&&Number.isFinite(p.max)&&p.min>=0&&p.max>p.min;
   const bottom=custom?lo:Math.max(0,Math.floor(lo/step)*step),top=custom?hi:Math.ceil(hi/step)*step;
   const normalized=step/(10**Math.floor(Math.log10(step))),minor=key==='ph'?step/2:['ta_ppm','ch_ppm'].includes(key)?(step>=10?step/2:1):step/(Math.abs(normalized-2)<.001?4:5);
-  return {bottom,top:Math.max(top,bottom+floor),step,minor,mode:p.mode};
+  return {bottom,top:Math.max(top,bottom+floor),step,minor,mode:p.mode,labelDecimals:key==='ph'?1:null};
 }
 function chartUiGeometry(options={}) {
   const expanded=options.target==='expandedChart',target=typeof document!=='undefined'?document.getElementById(options.target||'trendCharts'):null;
@@ -28,7 +28,7 @@ function chartUiGrid(scale,g,y) {
   for(let i=Math.ceil(scale.bottom/scale.minor);i*scale.minor<=scale.top+epsilon&&parts.length<160;i++){
     const v=i*scale.minor,major=Math.abs(v/scale.step-Math.round(v/scale.step))<.0001,py=y(v);
     parts.push('<line data-axis-tick="'+(major?'major':'minor')+'" x1="50" x2="520" y1="'+py+'" y2="'+py+'" stroke="'+(major?'#45616e':'#263e4b')+'" stroke-width="'+(major?1:.5)+'"/>');
-    if(major)parts.push('<text x="43" y="'+(py+g.font*.35)+'" text-anchor="end" font-size="'+g.font+'" fill="#aac4ce">'+Number(v.toFixed(3))+'</text>');
+    if(major)parts.push('<text x="43" y="'+(py+g.font*.35)+'" text-anchor="end" font-size="'+g.font+'" fill="#aac4ce">'+(scale.labelDecimals!=null?v.toFixed(scale.labelDecimals):Number(v.toFixed(3)))+'</text>');
   }
   return parts.join('');
 }
