@@ -1,0 +1,15 @@
+{
+  "id": "./",
+  "name": "J-365 Spa Log",
+  "short_name": "Spa Log",
+  "description": "Personal spa chemistry, predictions, soaks and maintenance.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#132b38",
+  "theme_color": "#132b38",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#132b38">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="assets/icon-192.png">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
   <title>J-365 Spa Log v6</title>
   <style>
     :root{font-family:system-ui,-apple-system,sans-serif;color:#ecf5f7;background:#0d202b}*{box-sizing:border-box}body{margin:0 auto;max-width:680px;padding:18px 16px 54px}h1{font-size:25px;margin:5px 0}.muted,.help{color:#aac4ce}.muted{margin:5px 0 16px}.help{font-size:12px;margin-top:6px}.status{display:flex;justify-content:space-between;gap:12px;align-items:center;background:#102b36;border:1px solid #42606e;padding:10px 12px;border-radius:12px;font-size:13px}.status strong.ok{color:#65e5bc}.status strong.warn{color:#ffd479}.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0}.tabs button{font-size:16px;padding:14px 3px;border-radius:12px;background:#203e4c;color:#fff;border:1px solid #42606e}.tabs button.active{background:#4cbbaf;color:#062b2c;font-weight:800}.panel{background:#18313f;border-radius:18px;padding:18px;margin-bottom:18px}label{display:block;font-weight:650;margin:13px 0 6px}input,select,textarea{width:100%;font:inherit;padding:13px;border-radius:10px;border:1px solid #54717d;background:#0d2530;color:#fff}textarea{min-height:66px}input[type=checkbox]{width:auto;transform:scale(1.3);margin-right:9px}.inline{display:flex;align-items:center;margin-top:15px}.inline label{margin:0}.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}.three{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}button{cursor:pointer}.primary{background:#4cbbaf;color:#062b2c;font-weight:800;border:0;padding:16px;width:100%;border-radius:12px;font-size:18px;margin-top:20px}.secondary{background:#254c5a;color:#fff;border:1px solid #517b86;padding:11px;border-radius:10px}.actions{display:flex;gap:8px;margin:12px 0}.actions button{flex:1}.entry{padding:12px 0;border-bottom:1px solid #42606e}.entry small{color:#a9c2cc}.entry strong{display:block;margin:4px 0}.toast{color:#65e5bc;font-weight:700;min-height:24px}.subhead{margin-top:20px;font-weight:800;font-size:17px}.calcbox{background:#102b36;border:1px solid #49717a;border-radius:14px;padding:14px;margin-top:18px}.rec{padding:12px;background:#204653;border-radius:12px;margin-top:9px}.rec strong{display:block;font-size:17px}.rec span{display:block;margin-top:5px}.rec button{margin-top:10px;width:100%}.dose-row{padding:12px 0;border-bottom:1px solid #42606e}#history{max-height:470px;overflow:auto}[hidden]{display:none!important}@media(max-width:430px){.two,.three{grid-template-columns:1fr}.tabs button{font-size:14px}}
@@ -130,7 +133,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.50.3',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.51.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -1285,7 +1288,44 @@ input,select,textarea{background:#0e1c27;border-color:#334a59;border-radius:9px;
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 `;document.head.appendChild(polishedStyle);
 setupServiceSettings();setupProductLibrary();setupSpaClock();setupConfigConflicts();
+// BEGIN GENERATED PWA CLIENT
+function setupPwa() {
+  if (typeof window === 'undefined' || !document.querySelector) return;
+  // Install only the secure origin, where existing private sync and local records live.
+  if (!location.hostname.endsWith('workers.dev') && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
+  const panel = document.createElement('section');
+  panel.id = 'pwaStatus'; panel.className = 'help'; panel.setAttribute('aria-live', 'polite');
+  panel.innerHTML = '<span id="pwaConnection"></span> <span id="pwaReady"></span><button type="button" class="secondary" id="pwaInstall" hidden>Install Spa Log</button><details id="pwaHelp"><summary>Install on your phone</summary><p>In Chrome on Android, open the menu and choose Add to home screen → Install. Use this secure address so your existing records and sync stay together.</p></details><p id="pwaUpdate" hidden>Update available. Finish and save your entry, then close all Spa Log windows and reopen. No reload will interrupt your work.</p>';
+  document.querySelector('.status').after(panel);
+  const connection = document.getElementById('pwaConnection'), ready = document.getElementById('pwaReady'), install = document.getElementById('pwaInstall');
+  const online = () => { connection.textContent = navigator.onLine ? '' : 'Offline · entries save on this device; sync resumes when connected.'; };
+  online(); window.addEventListener('offline', online);
+  const standalone = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone;
+  const hideInstall = () => { install.hidden = true; document.getElementById('pwaHelp').hidden = !!standalone(); };
+  let installPrompt = null;
+  hideInstall();
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; if (!standalone()) install.hidden = false; });
+  install.onclick = async () => { if (!installPrompt) return; const prompt = installPrompt; installPrompt = null; install.hidden = true; await prompt.prompt(); await prompt.userChoice; };
+  window.addEventListener('appinstalled', () => { installPrompt = null; install.hidden = true; document.getElementById('pwaHelp').hidden = true; });
+  if (!('serviceWorker' in navigator)) { ready.textContent = 'Offline startup unavailable in this browser.'; window.addEventListener('online', online); return; }
+  let registration;
+  const checkUpdate = () => registration?.update().catch(() => {});
+  let reconnecting = false;
+  window.addEventListener('online', async () => { online(); checkUpdate(); if (!reconnecting && typeof connect === 'function') { reconnecting = true; try { await connect(); } finally { reconnecting = false; } } });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
+  navigator.serviceWorker.register('sw.js', { scope: './', updateViaCache: 'none' }).then(reg => {
+    registration = reg;
+    const waiting = () => { if (reg.waiting && reg.active) document.getElementById('pwaUpdate').hidden = false; };
+    waiting();
+    const watch = worker => worker?.addEventListener('statechange', () => { if (worker.state === 'installed') waiting(); if (worker.state === 'redundant' && !reg.active) ready.textContent = 'Offline startup not ready yet. Reopen online to retry.'; });
+    watch(reg.installing); reg.addEventListener('updatefound', () => watch(reg.installing));
+    navigator.serviceWorker.ready.then(() => { ready.textContent = 'Ready for offline startup on this device.'; });
+  }).catch(() => { ready.textContent = 'Offline startup not ready yet. Reopen online to retry.'; });
+  // Never call skipWaiting, clients.claim, reload or erase local records here.
+}
+// END GENERATED PWA CLIENT
 migrateLegacy();fillNow();render();calculate();connect();
+setupPwa();
 </script>
 </body>
 </html>
