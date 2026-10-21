@@ -32,7 +32,7 @@ const disturbed=project([fill,sample,{...dose,id:'part1',amount:3},{id:'baking',
 const retest={id:'retest',type:'chemistry',timestamp:'2026-10-19T17:59',fill_cycle_id:'cycle',ph:7.7,ta_ppm:115};
 const reset=project([...context.fixture,retest]);assert.equal(reset.current,7.7);assert.equal(reset.partialAcid,undefined);context.withRetest=[...context.fixture,retest];assert.ok(run("automaticDosePairs(withRetest).some(p=>p.dose.id==='acid'&&p.after?.id==='retest')"));
 context.p=p;assert.match(run('projectionSvg(p,e=>Date.parse(e.timestamp),v=>v,p.horizon)'),/data-partial-acid-scenario="true"/);
-const history=run("calculatedChartHistory(withRetest,'ph',[{e:fixture[1],v:8,bounded:true},{e:withRetest.at(-1),v:7.7}],Date.parse(fixture[1].timestamp),Date.now())");assert.equal(history.bridges.length,0);assert.equal(history.doseEstimates[0].scenario,true);
+const history=run("calculatedChartHistory(withRetest,'ph',[{e:fixture[1],v:8,bounded:true},{e:withRetest.at(-1),v:7.7}],Date.parse(fixture[1].timestamp),Date.now())");assert.equal(history.bridges.length,1);assert.equal(history.bridges[0].conditional,true);assert.equal(history.doseEstimates[0].scenario,true);
 assert.equal(JSON.stringify(context.fixture),snapshot,'Original readings, Taylor reference and actual quantity must remain unchanged');
 // Personal acid response: known post-dose order without inventing a test time.
 const calDose={...dose,id:'synthetic-acid',created_at:'2026-10-19T17:44'},calRetest={id:'synthetic-retest',type:'chemistry',fill_cycle_id:'cycle',timestamp:'2026-10-19T17:44',created_at:'2026-10-19T18:02',ph:7.3};
