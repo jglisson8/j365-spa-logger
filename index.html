@@ -133,7 +133,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.52.3',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.52.4',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -947,7 +947,7 @@ function renderCharts(events,options={}){
  if(!points.length)return '<h3>'+name+'</h3><p>'+(window.fillKnown?'No samples in this window.':'Record a full refill to identify the current fill.')+'</p>';
  const projection=key==='fc_ppm'?fcProjection(events):['ph','ta_ppm'].includes(key)?balanceProjection(events,key):null,plotted=points.map(e=>({e,v:Number.isFinite(e[key])?e[key]:e.ph_bounds.value??e.ph_bounds.minimum,bounded:key==='ph'&&!!e.ph_bounds,postDose:postDoseForSample(e,key,events)})),start=options.range?window.start:Math.min(window.start,...points.map(chartTime)),end=options.range?window.end:Math.max(window.end,Date.now()+3*86400000),history=calculatedChartHistory(events,key,plotted,start,end);history.addEstimates(projection);
  const bounds=chartBounds(key),preferred=phPreferred(),dataValues=[...plotted.filter(p=>!p.e.chart_context_only).map(p=>p.v),...chartModelValues(projection,start,end),...history.bridges.flatMap(b=>b.points.map(p=>p.v)),...history.doseEstimates.map(p=>p.v)].filter(Number.isFinite),scale=chartUiScale(key,dataValues,[bounds.lower,bounds.upper,...(key==='ph'?[preferred.lower,preferred.upper]:[]),...(key==='fc_ppm'?[num($('fcTarget').value)||5]:[])]),{bottom,top}=scale,geometry=chartUiGeometry(options);
- const x=e=>50+470*(chartTime(e)-start)/Math.max(1,end-start),y=v=>geometry.bottom-(geometry.bottom-geometry.top)*(v-bottom)/(top-bottom),at=t=>x({timestamp:new Date(t).toISOString()}),inspectionId=(options.target||'trendCharts')+'-'+key;chartInspection.set(inspectionId,{key,plotted,projection,start,end,events,history,geometry,scale});x.start=start;
+ const x=e=>50+470*(chartTime(e)-start)/Math.max(1,end-start),y=v=>chartUiValueY(key,v,scale,geometry),at=t=>x({timestamp:new Date(t).toISOString()}),inspectionId=(options.target||'trendCharts')+'-'+key;chartInspection.set(inspectionId,{key,plotted,projection,start,end,events,history,geometry,scale});x.start=start;
  const title=e=>e.timestamp+' · '+label(e)+(modelTime(e)==null?' · time unknown':''),detail=(e,prefix='')=>' tabindex="0" role="button" data-trend-detail="'+esc(prefix+title(e))+'" aria-label="'+esc(prefix+title(e))+'"';
  const markers=events.filter(e=>e.type==='chemical_addition'||$('trendActivity').checked&&e.type==='soak'||e.type==='water_change'&&e.full).filter(e=>chartTime(e)>=start&&chartTime(e)<=end),segments=history.bridges.map(b=>'<polyline data-chart-trend="calculated-between"'+(b.interpolated?' data-history-interpolation="true"':'')+(b.conditional?' data-history-scenario="true" stroke-dasharray="3 3"':'')+' points="'+b.points.map(p=>at(p.t)+','+y(p.v)).join(' ')+'" fill="none" stroke="#65e5bc" stroke-width="2"><title>'+esc(b.description||'Calculated between points; endpoint-constrained reconstruction, not sampled or a forward forecast.')+'</title></polyline>').join('');
  const markerSvg=markers.map(e=>e.type==='water_change'?'<line'+detail(e)+' data-trend-marker="fill" x1="'+x(e)+'" x2="'+x(e)+'" y1="'+geometry.top+'" y2="'+geometry.bottom+'" stroke="#77c9ff" stroke-dasharray="4 4" opacity=".65"><title>'+esc(title(e))+'</title></line>':'<g'+detail(e,e.type==='chemical_addition'?'Dose added · ':'Soak · ')+' data-trend-marker="'+e.type+'" transform="translate('+x(e)+','+(geometry.bottom+12*geometry.scale)+')">'+(e.type==='soak'?'<line x1="0" x2="0" y1="'+(geometry.top-geometry.bottom-12*geometry.scale)+'" y2="'+(-12*geometry.scale)+'" stroke="#bb8cff" stroke-dasharray="2 4" opacity=".45"/>':'')+'<circle r="6" fill="'+(e.type==='soak'?'#bb8cff':'#ffbb66')+'"/><text text-anchor="middle" y="3" font-size="9" fill="#101c23">'+(e.type==='soak'?'S':'+')+'</text><title>'+esc(title(e))+'</title></g>').join('');
@@ -1376,6 +1376,12 @@ function chartUiGeometry(options={}) {
   const pixels=expanded?(existing?.height>100?existing.height:Math.max(150,(typeof window!=='undefined'?window.innerHeight:800)-230)):240;
   const scale=550/Math.max(240,width),height=pixels*scale;
   return {width:550,height,top:18*scale,bottom:height-48*scale,axis:height-12*scale,font:12*scale,scale};
+}
+function chartUiValueY(key,v,scale,g) {
+  // Unlabeled pH gutter keeps boundary glyphs inside the clip in portrait and
+  // landscape, without changing the labeled scale or any underlying values.
+  const inset=key==='ph'?Math.min((g.bottom-g.top)/4,8*Math.max(1,g.scale)):0;
+  return g.bottom-inset-(g.bottom-g.top-2*inset)*(v-scale.bottom)/(scale.top-scale.bottom);
 }
 function chartUiGrid(scale,g,y) {
   const parts=[],epsilon=scale.step/1000;

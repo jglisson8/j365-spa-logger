@@ -24,6 +24,12 @@ function chartUiGeometry(options={}) {
   const scale=550/Math.max(240,width),height=pixels*scale;
   return {width:550,height,top:18*scale,bottom:height-48*scale,axis:height-12*scale,font:12*scale,scale};
 }
+function chartUiValueY(key,v,scale,g) {
+  // Unlabeled pH gutter keeps boundary glyphs inside the clip in portrait and
+  // landscape, without changing the labeled scale or any underlying values.
+  const inset=key==='ph'?Math.min((g.bottom-g.top)/4,8*Math.max(1,g.scale)):0;
+  return g.bottom-inset-(g.bottom-g.top-2*inset)*(v-scale.bottom)/(scale.top-scale.bottom);
+}
 function chartUiGrid(scale,g,y) {
   const parts=[],epsilon=scale.step/1000;
   for(let i=Math.ceil(scale.bottom/scale.minor);i*scale.minor<=scale.top+epsilon&&parts.length<160;i++){
