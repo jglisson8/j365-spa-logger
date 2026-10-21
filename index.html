@@ -133,7 +133,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.52.2',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.52.3',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -1357,6 +1357,7 @@ function chartUiScalePreference(key) {
 }
 function chartUiScale(key,data,limits) {
   const p=chartUiScalePreference(key),finite=data.filter(Number.isFinite),fallback=limits.filter(Number.isFinite);
+  if(key==='ph'&&p.mode==='auto')return {bottom:7,top:8,step:.2,minor:.1,mode:p.mode,labelDecimals:1};
   let values=p.mode==='limits'?[...finite,...fallback]:finite.length?finite:fallback;
   let lo=Math.min(...values),hi=Math.max(...values),floor=key==='ph'?.1:key==='fc_ppm'?.2:5;
   if(!Number.isFinite(lo)||!Number.isFinite(hi)){lo=0;hi=1;}
@@ -1409,6 +1410,10 @@ function decorateAppCharts(targetId) {
   const target=document.getElementById(targetId||'trendCharts');if(!target)return;
   for(const card of target.querySelectorAll('.trend-card')){
     const svg=card.querySelector('svg'),meta=svg&&chartInspection.get(svg.dataset.chartInspect);if(!meta)continue;
+    if(meta.key==='ph'&&meta.scale.mode==='auto'){
+      const outside=meta.plotted.some(p=>!p.e.chart_context_only&&(p.v<7||p.v>8))||chartModelValues(meta.projection,meta.start,meta.end).some(v=>v<7||v>8)||meta.history.bridges.some(b=>b.points.some(p=>p.v<7||p.v>8))||meta.history.doseEstimates.some(p=>p.v<7||p.v>8);
+      if(outside){const note=document.createElement('span');note.className='chart-off-scale-note';note.style.display='block';note.textContent='Some values are outside 7.0–8.0. Drag to inspect or expand → Full limits to see them.';card.querySelector('.chart-targets')?.append(note);}
+    }
     for(const mark of svg.querySelectorAll('line,polyline,path,circle'))mark.setAttribute('vector-effect','non-scaling-stroke');
     for(const point of svg.querySelectorAll('circle[data-sample-kind="sample"]'))point.setAttribute('r',4*(meta.geometry?.scale||1));
     svg.setAttribute('aria-label',svg.getAttribute('aria-label')+'; drag to inspect; expand for zoom');
@@ -1462,7 +1467,7 @@ body.app-ui{padding-bottom:calc(92px + env(safe-area-inset-bottom))}.app-ui .bra
   $('chartCustom').onclick=()=>{$('chartRangeControls').open=!$('chartRangeControls').open;};
   for(const [button,old]of [['chartPanBack','chartEarlier'],['chartPanForward','chartLater'],['chartMagnify','chartZoomIn'],['chartReduce','chartZoomOut']])$(button).onclick=()=>$(old).click();
   const originalUpdate=updateExpandedChart;updateExpandedChart=function(){const start=parseSpaTime($('chartStart').value),end=parseSpaTime($('chartEnd').value);if(Number.isFinite(start)&&Number.isFinite(end)&&end>start){$('expandedChartValue').textContent='';document.querySelector('#chartRangeControls .chart-model-details')?.remove();}originalUpdate();decorateAppCharts('expandedChart');};
-  const originalOpen=openExpandedChart;openExpandedChart=function(key){originalOpen(key);const p=chartUiScalePreference(key);$('chartScaleMode').value=p.mode;$('chartScaleMin').value=p.min??'';$('chartScaleMax').value=p.max??'';$('chartScaleError').textContent='';schedule(()=>{if(chartViewer.open)updateExpandedChart();});};
+  const originalOpen=openExpandedChart;openExpandedChart=function(key){originalOpen(key);const p=chartUiScalePreference(key);$('chartScaleMode').options[0].textContent=key==='ph'?'7.0–8.0':'Auto scale';$('chartScaleMode').value=p.mode;$('chartScaleMin').value=p.min??'';$('chartScaleMax').value=p.max??'';$('chartScaleError').textContent='';schedule(()=>{if(chartViewer.open)updateExpandedChart();});};
   controls.addEventListener('click',e=>{const p=e.target.closest('[data-chart-preset]');for(const b of controls.querySelectorAll('[data-chart-preset]'))b.setAttribute('aria-pressed',String(b===p));if(!p)return;const now=Date.now(),hours=p.dataset.chartPreset==='24h'?24:p.dataset.chartPreset==='7d'?168:336,future=Math.min(72,hours/4),range=p.dataset.chartPreset==='Fill'?chartWindow(activeEvents(),expandedChartKey,'fill'):null;$('chartStart').value=chartInputTime(range?.start??now-(hours-future)*3600000);$('chartEnd').value=chartInputTime(now+(range?72:future)*3600000);updateExpandedChart();});
   $('chartScaleMode').onchange=()=>{if($('chartScaleMode').value==='custom'){$('chartRangeControls').open=true;$('chartScaleMin').focus();return;}localStorage.setItem('j365_chart_scale_'+expandedChartKey,JSON.stringify({mode:$('chartScaleMode').value}));updateExpandedChart();};
   $('applyChartScale').onclick=()=>{const min=num($('chartScaleMin').value),max=num($('chartScaleMax').value);if(min==null||max==null||min<0||max<=min){$('chartScaleError').textContent='Choose a maximum greater than the minimum.';return;}localStorage.setItem('j365_chart_scale_'+expandedChartKey,JSON.stringify({mode:'custom',min,max}));$('chartScaleMode').value='custom';$('chartScaleError').textContent='';$('chartRangeControls').open=false;updateExpandedChart();};
