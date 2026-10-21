@@ -1,0 +1,25 @@
+// Optional Chromium phone-layout checks. Synthetic records; no live login or writes.
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const {chromium}=require(process.env.J365_PLAYWRIGHT||'playwright'),root=path.join(__dirname,'..');
+(async()=>{const browser=await chromium.launch({headless:true,...(process.env.J365_CHROMIUM?{executablePath:process.env.J365_CHROMIUM}:{})});try{
+ const page=await browser.newPage({viewport:{width:393,height:852},isMobile:true,hasTouch:true}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const now=Date.now(),day=86400000,events=[{id:'layout-fill',type:'water_change',full:true,timestamp:new Date(now-9*day).toISOString(),new_fill_cycle_id:'layout-fill',gallons:395},...Array.from({length:8},(_,i)=>({id:'layout-'+i,type:'chemistry',timestamp:new Date(now-(7-i)*day).toISOString(),fill_cycle_id:'layout-fill',fc_ppm:4.8-i*.4,ph:7.2+i*.08,ta_ppm:90,ch_ppm:170}))];
+ await page.addInitScript(events=>localStorage.setItem('j365_spa_events_v2',JSON.stringify(events)),events);
+ await page.route('https://spa.test/**',route=>{const u=new URL(route.request().url());if(u.pathname.startsWith('/assets/'))return route.fulfill({path:root+u.pathname});return route.fulfill({contentType:'text/html',body:fs.readFileSync(path.join(root,'index.html'),'utf8').replace('render();calculate();connect();','render();calculate();')});});
+ await page.goto('https://spa.test/');const original=await page.evaluate(()=>localStorage.getItem('j365_spa_events_v2'));
+ await page.locator('#fc').fill('3.4');await page.locator('[data-tab="trends"]').click();await page.locator('[data-tab="chemistry"]').click();assert.equal(await page.locator('#fc').inputValue(),'3.4');
+ const save=await page.locator('.save-bar').boundingBox(),nav=await page.locator('.tabs').boundingBox();assert.ok(save.y+save.height<=nav.y,'Save is above navigation: '+JSON.stringify({save,nav}));
+ await page.locator('[data-tab="trends"]').click();await page.locator('[data-expand-chart="fc_ppm"]').click();await page.waitForTimeout(100);
+ const portrait=await page.locator('#expandedChart svg').boundingBox();assert.ok(portrait.height>400);assert.ok(portrait.y<210);
+ const titleBefore=await page.locator('#expandedChartValue').textContent();await page.touchscreen.tap(portrait.x+portrait.width*.6,portrait.y+portrait.height*.5);assert.ok(await page.locator('#expandedChart .chart-readout strong').count());assert.equal(await page.locator('#expandedChartValue').textContent(),titleBefore);
+ await page.setViewportSize({width:852,height:393});await page.waitForTimeout(100);const landscape=await page.locator('#expandedChart svg').boundingBox(),legend=await page.locator('#expandedChart .chart-key').boundingBox();assert.ok(landscape.height>=140);assert.ok(landscape.y+landscape.height<=393);assert.ok(legend.y+legend.height<=393);
+ await page.locator('[data-chart-preset="24h"]').click();let span=()=>page.evaluate(()=>SpaTime.parse(document.getElementById('chartEnd').value)-SpaTime.parse(document.getElementById('chartStart').value));assert.ok(Math.abs(await span()-24*3600000)<120000);
+ // Real touch pinch, with pointer capture surviving SVG redraws.
+ const cdp=await page.context().newCDPSession(page),box=await page.locator('#expandedChart svg').boundingBox(),y=box.y+box.height/2;
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+250,y,id:1},{x:box.x+450,y,id:2}]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:box.x+200,y,id:1},{x:box.x+500,y,id:2}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});assert.ok(await span()<24*3600000);
+ await page.goBack();assert.equal(await page.locator('#chartViewer').evaluate(e=>e.open),false);
+ await page.locator('[data-tab="history"]').click();await page.locator('#history .entry summary').first().click();assert.equal(await page.locator('#historySheet').evaluate(e=>e.open),true);await page.goBack();assert.equal(await page.locator('#historySheet').evaluate(e=>e.open),false);
+ assert.equal(await page.evaluate(()=>localStorage.getItem('j365_spa_events_v2')),original);assert.deepEqual(errors,[]);
+ console.log('PASS: phone save/nav separation, drafts, portrait '+Math.round(portrait.height)+'px chart, landscape '+Math.round(landscape.height)+'px chart + visible legend, inspection, exact presets, real touch pinch, Android-style Back and unchanged records');
+ }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1});
