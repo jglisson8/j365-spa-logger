@@ -10,7 +10,7 @@ for(const key of Object.keys(bounds)){
  assert.match(summary,/class="chart-summary"/);assert.match(summary,/Alerts /);assert.doesNotMatch(summary,/Detailed equilibrium|long explanation|12 sample|manufacturer.*maximum/);
  assert.match(details,/<details class="help chart-model-details"><summary>Model details<\/summary>/);assert.doesNotMatch(details,/<details[^>]*\bopen\b/);assert.match(details,/long explanation/);assert.match(details,/12 sample/);
 }
-assert.match(overview(projection,'ph'),/Upper target in ~6.0 h/);
+assert.match(overview(projection,'ph'),/Upper target in ≈6.0 h/);
 assert.match(overview({...projection,current:8},'ph'),/Currently above upper target/);
 assert.match(overview({...projection,key:'ta_ppm',current:120},'ta_ppm'),/No drift-based crossing/);
 assert.match(overview(null,'ch_ppm',[{v:180}]),/Latest sample: 180.0 ppm/);
