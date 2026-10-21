@@ -16,6 +16,9 @@ c.meta.history.doseEstimates=[{t:now,v:7.3,dose:{product:'Synthetic acid'}}];ass
 c.meta.history.doseEstimates[0].scenario=true;assert.match(run('inspectChartValue(meta,now).text'),/Post-dose scenario ≈7.30/);
 run('config=null');c.facts={facts:{fc_ppm:{kind:'estimate',value:2.4,hi:2.4},ph:{kind:'sample',value:7.4,hi:7.4},ta_ppm:{kind:'carried',value:110,hi:110}}};
 run('actionContext=()=>facts;buildActionPlan=()=>({cards:[]});actionSignature=()=>"synthetic";renderActionGuidance()');
-const action=element('nextActions').innerHTML;assert.match(action,/FC: ≈2 ppm/);assert.match(action,/pH: 7.4 · sample/);assert.match(action,/TA: ≈110 ppm · carried forward/);assert.doesNotMatch(action,/· estimated|pH: ≈/);
+const action=element('nextActions').innerHTML;assert.match(action,/FC: ≈2.4 ppm/);assert.match(action,/pH: 7.4 · sample/);assert.match(action,/TA: ≈110 ppm · carried forward/);assert.doesNotMatch(action,/· estimated|pH: ≈/);
+for(const [kind,value,expected] of [['sample',2,'FC: 2.0 ppm · sample'],['estimate',0.96,'FC: ≈1.0 ppm'],['carried',0.4,'FC: ≈0.4 ppm · carried forward']]){
+ c.facts.facts.fc_ppm={kind,value,hi:value};run('renderActionGuidance()');assert.ok(element('nextActions').innerHTML.includes(expected),expected);
+}
 assert.equal(run("label({type:'water_top_off',gallons:5,volume_estimated:true})"),'Top-off — ≈5 gal');assert.equal(run("label({type:'water_top_off',gallons:5})"),'Top-off — 5 gal');assert.equal(run("label({type:'chemical_addition',amount:2,unit:'tbsp',product:'Actual dose'})"),'2 tbsp Actual dose');
 console.log('PASS: ≈ for modeled/carried values, forecasts, post-dose readouts and approximate top-offs; measured samples, actual doses and warnings remain distinct');
