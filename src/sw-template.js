@@ -26,6 +26,20 @@ self.addEventListener('activate', event => event.waitUntil((async () => {
   for (const key of await caches.keys()) if (key.startsWith('j365-public-shell-') && key !== CACHE) await caches.delete(key);
   // Do not claim open pages: never switch code under an unfinished entry.
 })()));
+// Activation is opt-in from a same-origin app window. Refuse while another
+// window could contain a draft, including older clients without draft checks.
+self.addEventListener('message', event => {
+  if(event.data?.type!=='J365_ACTIVATE_UPDATE'||event.source?.type!=='window')return;
+  const source=event.source,url=new URL(source.url);
+  if(url.origin!==BASE.origin||!url.pathname.startsWith(BASE.pathname))return;
+  event.waitUntil((async()=>{
+    const windows=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+    const other=windows.some(client=>client.id!==source.id&&new URL(client.url).origin===BASE.origin&&new URL(client.url).pathname.startsWith(BASE.pathname));
+    if(other){source.postMessage({type:'J365_UPDATE_BLOCKED',version:VERSION});return;}
+    source.postMessage({type:'J365_UPDATE_ACTIVATING',version:VERSION});
+    await self.skipWaiting();
+  })());
+});
 self.addEventListener('fetch', event => {
   const request = event.request, url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== BASE.origin) return;

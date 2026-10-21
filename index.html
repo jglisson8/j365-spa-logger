@@ -133,7 +133,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.52.4',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.53.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -925,6 +925,7 @@ function chartModelDetails(p,key,count){
  return '<details class="help chart-model-details"><summary>Model details</summary><p>'+esc(p?forecastSummary(p):'Sample history only; no calcium-hardness forecast is available.')+'</p><p>'+esc(explanation)+'</p>'+(key==='ph'?'<p>8+ is a bounded sample, not an exact starting pH. Conditional post-dose scenarios remain estimates.</p>':'')+'<p>'+count+' sample(s). Estimates assume no further use or additions and are not a water-safety guarantee. Calibration, uncertainty and forecast checks are available under Advanced model details and scenario tools.</p></details>';
 }
 const chartInspection=new Map();
+const chartPins=new Map();
 function inspectChartValue(meta,t){
  const nearest=meta.plotted.reduce((a,b)=>Math.abs(chartTime(a.e)-t)<Math.abs(chartTime(b.e)-t)?a:b),near=Math.abs(chartTime(nearest.e)-t)<=Math.max(60000,(meta.end-meta.start)*8/470);
  const dosePoint=(meta.history?.doseEstimates??[]).filter(p=>Math.abs(p.t-t)<=Math.max(60000,(meta.end-meta.start)*8/470)).sort((a,b)=>Math.abs(a.t-t)-Math.abs(b.t-t))[0];if(dosePoint&&Math.abs(dosePoint.t-t)<Math.abs(chartTime(nearest.e)-t))return {text:new Date(dosePoint.t).toLocaleString(undefined,{timeZone:SpaTime.zone})+' · Post-dose '+(dosePoint.scenario?'scenario ≈':'≈')+dosePoint.v.toFixed(2)+(meta.key==='ph'?'':' ppm')+' · '+dosePoint.dose.product+' (not measured)',time:dosePoint.t,value:dosePoint.v};
@@ -934,7 +935,14 @@ function inspectChartValue(meta,t){
  return {text:'Nearest recorded value: '+nearest.e.timestamp.replace('T',' ')+' · '+label(nearest.e)+(modelTime(nearest.e)==null?' · time unknown':''),time:chartTime(nearest.e),value:nearest.v};
 }
 function updateChartInspection(container,svg,fraction){const meta=chartInspection.get(svg.dataset.chartInspect);if(!meta)return;const result=inspectChartValue(meta,meta.start+(meta.end-meta.start)*fraction),readout=container.querySelector('[data-chart-readout="'+svg.dataset.chartInspect+'"]');chartUiReadout(readout,result,meta);let marker=svg.querySelector('[data-inspection-marker]');if(!marker){marker=document.createElementNS('http://www.w3.org/2000/svg','line');marker.setAttribute('data-inspection-marker','');marker.setAttribute('y1',String(meta.geometry?.top??28));marker.setAttribute('y2',String(meta.geometry?.bottom??148));marker.setAttribute('stroke','#ffffff');marker.setAttribute('stroke-dasharray','2 3');marker.setAttribute('pointer-events','none');svg.appendChild(marker)}const x=50+470*fraction;marker.setAttribute('x1',x);marker.setAttribute('x2',x)}
-function enableChartInspection(container){let held=null;const move=e=>{if(!held)return;const box=held.getBoundingClientRect();if(box.width>0)updateChartInspection(container,held,Math.max(0,Math.min(1,((e.clientX-box.left)/box.width*550-50)/470)))};container.addEventListener('pointerdown',e=>{const svg=e.target.closest('svg[data-chart-inspect]');if(!svg)return;held=svg;svg.setPointerCapture?.(e.pointerId);move(e)});container.addEventListener('pointermove',move);for(const name of ['pointerup','pointercancel'])container.addEventListener(name,()=>held=null)}
+function clearChartPins(container){for(const svg of container.querySelectorAll('svg[data-chart-inspect]')){chartPins.delete(svg.dataset.chartInspect);svg.querySelector('[data-inspection-marker]')?.remove();const readout=container.querySelector('[data-chart-readout="'+svg.dataset.chartInspect+'"]');if(readout){delete readout.dataset.pinned;readout.textContent='Tap or drag to inspect values.';readout.removeAttribute('title');}}}
+function restoreChartPins(container){for(const svg of container.querySelectorAll('svg[data-chart-inspect]')){const key=svg.dataset.chartInspect,t=chartPins.get(key),meta=chartInspection.get(key);if(t==null||!meta)continue;if(t<meta.start||t>meta.end){chartPins.delete(key);continue;}updateChartInspection(container,svg,(t-meta.start)/(meta.end-meta.start));container.querySelector('[data-chart-readout="'+key+'"]')?.setAttribute('data-pinned','true');}}
+function enableChartInspection(container){let held=null,fraction=null,multi=false;const fingers=new Set();
+ const move=e=>{if(!held||fingers.size>1)return;const box=held.getBoundingClientRect();if(box.width>0){fraction=Math.max(0,Math.min(1,((e.clientX-box.left)/box.width*550-50)/470));updateChartInspection(container,held,fraction);}};
+ container.addEventListener('pointerdown',e=>{const svg=e.target.closest('svg[data-chart-inspect]');if(!svg)return;fingers.add(e.pointerId);if(fingers.size>1){multi=true;return;}multi=false;held=svg;fraction=null;svg.setPointerCapture?.(e.pointerId);move(e);});container.addEventListener('pointermove',move);
+ for(const type of ['pointerup','pointercancel'])container.addEventListener(type,e=>{fingers.delete(e.pointerId);if(type==='pointerup'&&!multi&&held&&fraction!=null){const key=held.dataset.chartInspect,meta=chartInspection.get(key);if(meta){chartPins.set(key,meta.start+(meta.end-meta.start)*fraction);container.querySelector('[data-chart-readout="'+key+'"]')?.setAttribute('data-pinned','true');}}if(!fingers.size){held=null;multi=false;}});
+ document.addEventListener?.('pointerdown',e=>{if(!e.target.closest('svg[data-chart-inspect],.chart-readout'))clearChartPins(container);});
+}
 function chartKey(key,projection){
  const item=(symbol,label,edit)=>'<'+(edit?'button type="button" data-edit-chart-bound="'+key+'" data-bound-field="'+edit+'"':'span')+' class="key-item"><span aria-hidden="true" class="key-swatch">'+symbol+'</span>'+label+(edit?' ✎':'')+'</'+(edit?'button':'span')+'>',line=(color,dash,extra='')=>'<i class="key-line" style="border-top-color:'+color+';border-top-style:'+dash+';'+extra+'"></i>',b=chartBounds(key),preferred=phPreferred();
  return '<details class="help chart-key"><summary>Chart key</summary><div class="key-items">'+item('<i class="key-dot"></i>','Sample')+(key==='ph'?item('<i class="key-triangle"></i>','8+'):'')+item(line('#65e5bc','solid'),'Calculated between points')+item(line('#ed8cfa','dashed'),'Model ≈')+item(line('#ed8cfa','dotted','opacity:.45'),'Extrapolation')+item('<i class="key-diamond estimate"></i>','Post-dose ≈')+item('<i class="key-diamond measured"></i>','Post-dose measured')+item('<i class="key-activity" style="background:#ffbb66">+</i>','Dose added')+item(line('#ff7777','dashed'),'Lower '+b.lower,'lower')+item(line('#ffc36b','dashed'),'Upper '+b.upper,'upper')+(key==='ph'?item('<i style="display:block;width:28px;height:12px;background:#65e5bc;opacity:.4"></i>','Preferred pH '+preferred.lower+'–'+preferred.upper,'preferred'):'')+(key==='fc_ppm'?item(line('#aac4ce','dashed'),'Dosing target '+$('fcTarget').value,'target'):'')+item('<i class="key-refill"></i>','Refill')+($('trendActivity').checked?item('<i class="key-activity" style="background:#bb8cff">S</i>','Soak'):'')+'</div><p class="help">≈ = calculated or approximate, not sampled. Tap a limit to edit.</p></details>';
@@ -1321,33 +1329,49 @@ function setupPwa() {
   if (!location.hostname.endsWith('workers.dev') && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
   const panel = document.createElement('section');
   panel.id = 'pwaStatus'; panel.className = 'help'; panel.setAttribute('aria-live', 'polite');
-  panel.innerHTML = '<span id="pwaConnection"></span> <span id="pwaReady"></span><button type="button" class="secondary" id="pwaInstall" hidden>Install Spa Log</button><details id="pwaHelp"><summary>Install on your phone</summary><p>In Chrome on Android, open the menu and choose Add to home screen → Install. Use this secure address so your existing records and sync stay together.</p></details><p id="pwaUpdate" hidden>Update available. Finish and save your entry, then close all Spa Log windows and reopen. No reload will interrupt your work.</p>';
+  panel.innerHTML = '<span id="pwaConnection"></span> <span id="pwaReady"></span><button type="button" class="secondary" id="pwaInstall" hidden>Install Spa Log</button><details id="pwaHelp"><summary>Install on your phone</summary><p>In Chrome on Android, open the menu and choose Add to home screen → Install. Use this secure address so your existing records and sync stay together.</p></details><div id="pwaUpdate" hidden><span id="pwaUpdateText">Update available.</span> <button type="button" class="secondary" id="pwaUpdateNow">Update now</button></div>';
   document.querySelector('.status').after(panel);
   const connection = document.getElementById('pwaConnection'), ready = document.getElementById('pwaReady'), install = document.getElementById('pwaInstall');
-  const online = () => { connection.textContent = navigator.onLine ? '' : 'Offline · entries save on this device; sync resumes when connected.'; };
+  const settings=document.getElementById('appConnectionSettings');if(settings){const line=document.createElement('p');line.append(ready);settings.append(line);}
+  const refreshPanel=()=>{panel.hidden=!!settings&&!connection.textContent&&install.hidden&&document.getElementById('pwaUpdate').hidden;};
+  const online = () => { connection.textContent = navigator.onLine ? '' : 'Offline · entries save on this device; sync resumes when connected.';refreshPanel(); };
   online(); window.addEventListener('offline', online);
   const standalone = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone;
-  const hideInstall = () => { install.hidden = true; document.getElementById('pwaHelp').hidden = !!standalone(); };
+  const hideInstall = () => { install.hidden = true; document.getElementById('pwaHelp').hidden = !!standalone();refreshPanel(); };
   let installPrompt = null;
   hideInstall();
-  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; if (!standalone()) install.hidden = false; });
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; if (!standalone()) install.hidden = false;refreshPanel(); });
   install.onclick = async () => { if (!installPrompt) return; const prompt = installPrompt; installPrompt = null; install.hidden = true; await prompt.prompt(); await prompt.userChoice; };
   window.addEventListener('appinstalled', () => { installPrompt = null; install.hidden = true; document.getElementById('pwaHelp').hidden = true; });
   if (!('serviceWorker' in navigator)) { ready.textContent = 'Offline startup unavailable in this browser.'; window.addEventListener('online', online); return; }
-  let registration;
+  let registration,requestedWorker=null,reloading=false,updateTimer;
+  const updateButton=document.getElementById('pwaUpdateNow'),updateText=document.getElementById('pwaUpdateText');
+  const dirty=()=>typeof appHasUnsavedWork==='function'?appHasUnsavedWork():[...document.querySelectorAll('input,textarea,select')].some(e=>e.value!==e.defaultValue&&e.tagName!=='SELECT');
+  const reloadSafely=()=>{if(dirty()){updateText.textContent='Update ready. Save or finish your unsaved work, then tap Update now.';updateButton.disabled=false;return;}if(!reloading){reloading=true;location.reload();}};
+  updateButton.onclick=()=>{
+    if(dirty()){updateText.textContent='Save or finish your unsaved work before updating. Nothing has been restarted.';return;}
+    if(requestedWorker&&requestedWorker.state==='activated'){reloadSafely();return;}
+    if(!registration?.waiting){updateText.textContent='Checking for an update…';checkUpdate();return;}
+    requestedWorker=registration.waiting;updateButton.disabled=true;updateText.textContent='Applying update…';
+    requestedWorker.postMessage({type:'J365_ACTIVATE_UPDATE'});
+    clearTimeout(updateTimer);updateTimer=setTimeout(()=>{updateButton.disabled=false;updateText.textContent='Update has not restarted this window. Try again, or close other Spa Log windows.';},15000);
+  };
+  navigator.serviceWorker.addEventListener('message',e=>{if(!requestedWorker||e.source!==requestedWorker)return;if(e.data?.type==='J365_UPDATE_BLOCKED'){clearTimeout(updateTimer);updateButton.disabled=false;requestedWorker=null;updateText.textContent='Close other Spa Log windows or browser tabs, then tap Update now again.';}});
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(requestedWorker){clearTimeout(updateTimer);reloadSafely();}});
   const checkUpdate = () => registration?.update().catch(() => {});
   let reconnecting = false;
   window.addEventListener('online', async () => { online(); checkUpdate(); if (!reconnecting && typeof connect === 'function') { reconnecting = true; try { await connect(); } finally { reconnecting = false; } } });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
   navigator.serviceWorker.register('sw.js', { scope: './', updateViaCache: 'none' }).then(reg => {
     registration = reg;
-    const waiting = () => { if (reg.waiting && reg.active) document.getElementById('pwaUpdate').hidden = false; };
+    const waiting = () => { if (reg.waiting && reg.active) document.getElementById('pwaUpdate').hidden = false;refreshPanel(); };
     waiting();
     const watch = worker => worker?.addEventListener('statechange', () => { if (worker.state === 'installed') waiting(); if (worker.state === 'redundant' && !reg.active) ready.textContent = 'Offline startup not ready yet. Reopen online to retry.'; });
     watch(reg.installing); reg.addEventListener('updatefound', () => watch(reg.installing));
     navigator.serviceWorker.ready.then(() => { ready.textContent = 'Ready for offline startup on this device.'; });
   }).catch(() => { ready.textContent = 'Offline startup not ready yet. Reopen online to retry.'; });
-  // Never call skipWaiting, clients.claim, reload or erase local records here.
+  // No automatic activation/reload. User-requested activation is draft-checked,
+  // and the worker additionally refuses while another app window is open.
 }
 // END GENERATED PWA CLIENT
 // BEGIN GENERATED APP UI
@@ -1416,6 +1440,7 @@ function decorateAppCharts(targetId) {
   const target=document.getElementById(targetId||'trendCharts');if(!target)return;
   for(const card of target.querySelectorAll('.trend-card')){
     const svg=card.querySelector('svg'),meta=svg&&chartInspection.get(svg.dataset.chartInspect);if(!meta)continue;
+    for(const old of card.querySelectorAll('.chart-off-scale-note,[data-between-scenario-key]'))old.remove();
     if(meta.key==='ph'&&meta.scale.mode==='auto'){
       const outside=meta.plotted.some(p=>!p.e.chart_context_only&&(p.v<7||p.v>8))||chartModelValues(meta.projection,meta.start,meta.end).some(v=>v<7||v>8)||meta.history.bridges.some(b=>b.points.some(p=>p.v<7||p.v>8))||meta.history.doseEstimates.some(p=>p.v<7||p.v>8);
       if(outside){const note=document.createElement('span');note.className='chart-off-scale-note';note.style.display='block';note.textContent='Some values are outside 7.0–8.0. Drag to inspect or expand → Full limits to see them.';card.querySelector('.chart-targets')?.append(note);}
@@ -1429,12 +1454,13 @@ function decorateAppCharts(targetId) {
       const label=item.textContent;
       const present=label==='Sample'?meta.plotted.some(p=>!p.postDose):label==='8+'?meta.plotted.some(p=>p.bounded):label==='Calculated between points'?!!meta.history.bridges.length:label==='Model ≈'?!!svg.querySelector('[data-chart-trend="future"],[data-chart-trend="balance"]'):label==='Extrapolation'?!!svg.querySelector('[data-chart-trend="extrapolated"]'):label==='Post-dose ≈'?!!meta.history.doseEstimates.length:label==='Post-dose measured'?meta.plotted.some(p=>p.postDose):label==='Dose added'?!!svg.querySelector('[data-trend-marker="chemical_addition"]'):label==='Soak'?!!svg.querySelector('[data-trend-marker="soak"]'):label==='Refill'?!!svg.querySelector('[data-trend-marker="fill"]'):true;
       item.hidden=!present||(label==='Sample'&&meta.plotted.every(p=>p.e.chart_context_only));
-    }if(svg.querySelector('[data-history-scenario]')){const item=document.createElement('span');item.className='key-item';item.innerHTML='<span aria-hidden="true" class="key-swatch"><i class="key-line" style="border-top-color:#65e5bc;border-top-style:dotted"></i></span>Between-points scenario';item.title='Retrospective connection using bounded pH or calendar-day placement, not an exact history or forecast.';key.querySelector('.key-items')?.append(item);}}
+    }if(svg.querySelector('[data-history-scenario]')){const item=document.createElement('span');item.className='key-item';item.setAttribute('data-between-scenario-key','');item.innerHTML='<span aria-hidden="true" class="key-swatch"><i class="key-line" style="border-top-color:#65e5bc;border-top-style:dotted"></i></span>Between-points scenario';item.title='Retrospective connection using bounded pH or calendar-day placement, not an exact history or forecast.';key.querySelector('.key-items')?.append(item);}}
     if(targetId==='expandedChart'){
       const value=document.getElementById('expandedChartValue');if(value)value.textContent=card.querySelector('.chart-summary')?.textContent||'';
       const details=card.querySelector('.chart-model-details');if(details){const old=document.querySelector('#chartRangeControls .chart-model-details');old?.remove();document.getElementById('chartRangeControls')?.append(details);}
     }
   }
+  restoreChartPins(target);
 }
 function setupAppUi() {
   if(typeof window==='undefined'||!document.querySelector)return;
@@ -1499,9 +1525,108 @@ body.app-ui{padding-bottom:calc(92px + env(safe-area-inset-bottom))}.app-ui .bra
   const settings=document.createElement('details');settings.id='appConnectionSettings';settings.className='optional';settings.innerHTML='<summary>App &amp; connection</summary><p class="help">App '+APP_VERSION+' · installs and offline data are specific to this device and browser.</p>';$('tab-maintenance').append(settings);settings.append($('backupStatus'));queueMicrotask(()=>{const help=$('pwaHelp');if(help){settings.append(help);help.style.display='block';}});
   groupHistory();compactActions();
 }
+// Interaction layer only: no chemistry/model/storage-schema changes.
+let appWorkflowState=null;
+function appHasUnsavedWork(){
+  if(!appWorkflowState)return false;
+  const s=appWorkflowState;
+  if(document.querySelector('#doses .dose-row')||document.getElementById('calculatedActualAmount'))return true;
+  if(document.getElementById('recordEditor')?.open||document.getElementById('productEditor')?.hidden===false)return true;
+  if(typeof serviceSettingsDirty!=='undefined'&&serviceSettingsDirty)return true;
+  if(typeof productDefaultsDirty!=='undefined'&&productDefaultsDirty)return true;
+  return s.forms.some(form=>s.signature(form)!==s.baselines.get(form)||s.dateDirty.has(form)&&s.dates(form)!==s.dateBaselines.get(form));
+}
+function setupAppWorkflow(){
+  if(typeof window==='undefined'||!document.querySelector)return;
+  const prefKey='j365_app_choices_v1';let prefs;
+  try{prefs=JSON.parse(localStorage.getItem(prefKey)||'{}');if(!prefs||typeof prefs!=='object'||Array.isArray(prefs))prefs={};}catch{prefs={};}
+  const persist=()=>{try{localStorage.setItem(prefKey,JSON.stringify(prefs));}catch{ /* optional preferences must never stop entry */ }};
+  const productKey=choice=>profileForChoice(choice)?choice:null;
+  const preferredUnit=choice=>units.includes(prefs.units?.[choice])?prefs.units[choice]:null;
+  const rememberDose=(choice,unit)=>{if(!productKey(choice)||!units.includes(unit))return;prefs.product=choice;prefs.units={...prefs.units,[choice]:unit};persist();};
+  const originalAdd=addDose;addDose=function(product,amount,unit,snapshot){
+    product=product??(productKey(prefs.product)&&!profileForChoice(prefs.product).archived?prefs.product:defaultProductChoice('bleach'));
+    unit=unit??preferredUnit(product)??'fl oz';originalAdd(product,amount??'',unit,snapshot);
+    const row=$('doses').lastElementChild;
+    row.addEventListener('change',e=>{if(e.target.matches('.product')&&!row.querySelector('.amount').value){const u=preferredUnit(e.target.value);if(u)row.querySelector('.unit').value=u;}rememberDose(row.querySelector('.product').value,row.querySelector('.unit').value);});
+    rememberDose(product,unit);
+  };
+  const originalConfirm=confirmCalculatedDose;confirmCalculatedDose=function(product,amount,unit){
+    originalConfirm(product,amount,unit);const u=preferredUnit(product);
+    // Convert only the untouched, newly opened suggestion. Subsequent user unit
+    // changes retain the entered number, matching the established unit contract.
+    if(u&&$('calculatedActualUnit')&&[...$('calculatedActualUnit').options].some(o=>o.value===u)){
+      const converted=convertActualDose(product,amount,unit,u);
+      if(Number.isFinite(converted)&&converted>0){$('calculatedActualAmount').value=Number(converted.toFixed(4));$('calculatedActualUnit').value=u;}
+    }
+  };
+  const safeActivity=a=>a!=='water_change_full'&&[...$('maintenanceActivity').options].some(o=>o.value===a);
+  if(safeActivity(prefs.service)){$('maintenanceActivity').value=prefs.service;maintenanceUI();}
+  const originalOpen=openExpandedChart;openExpandedChart=function(key){originalOpen(key);const preset=prefs.chartPresets?.[key],view=prefs.chartViews?.[key];if(['24h','7d','14d','Fill'].includes(preset))document.querySelector('[data-chart-preset="'+preset+'"]')?.click();else if(view&&Number.isFinite(view.start)&&Number.isFinite(view.end)&&view.end>view.start&&view.end-view.start<=366*86400000){$('chartStart').value=chartInputTime(view.start);$('chartEnd').value=chartInputTime(view.end);updateExpandedChart();}};
+  document.querySelector('.chart-quick-controls').addEventListener('click',e=>{const preset=e.target.closest('[data-chart-preset]');if(preset&&expandedChartKey){prefs.chartPresets={...prefs.chartPresets,[expandedChartKey]:preset.dataset.chartPreset};persist();}});
+  const rememberView=()=>{if($('chartRangeError').textContent||!expandedChartKey)return;const start=parseSpaTime($('chartStart').value),end=parseSpaTime($('chartEnd').value);if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start)return;prefs.chartViews={...prefs.chartViews,[expandedChartKey]:{start,end}};if(prefs.chartPresets)delete prefs.chartPresets[expandedChartKey];persist();};
+  for(const id of ['applyChartRange','chartEarlier','chartLater','chartZoomIn','chartZoomOut'])$(id).addEventListener('click',rememberView);
+  const fingers=new Set();let pinched=false;$('expandedChart').addEventListener('pointerdown',e=>{if(!e.target.closest('svg'))return;fingers.add(e.pointerId);if(fingers.size>1)pinched=true;});for(const type of ['pointerup','pointercancel'])$('expandedChart').addEventListener(type,e=>{fingers.delete(e.pointerId);if(!fingers.size&&pinched){rememberView();pinched=false;}});
+  // One visible entry summary, one actual submit path. Nothing stages or saves
+  // on navigation, calculator display, inspection or preference changes.
+  const summary=document.createElement('details');summary.id='entryReview';summary.className='entry-review';summary.innerHTML='<summary>Review entry</summary><div id="entryReviewBody"></div>';$('doses').after(summary);
+  const forms=['chemistryForm','soakForm','maintenanceForm'].map($),baselines=new Map(),dateDirty=new Set(),dateBaselines=new Map();
+  const dates=form=>JSON.stringify([...form.querySelectorAll('.date,.time')].map(e=>e.value));
+  const signature=form=>JSON.stringify([...form.querySelectorAll('input,select,textarea')].filter(e=>!e.matches('.date,.time')&&!['targetFc','targetPh','bakingMode','bakingTargetTa','bakingTargetPh','bakingMaxTa'].includes(e.id)).map(e=>[e.id||e.className,e.type==='checkbox'?e.checked:e.value]));
+  const resetBaseline=form=>{baselines.set(form,signature(form));dateBaselines.set(form,dates(form));dateDirty.delete(form);};
+  forms.forEach(resetBaseline);appWorkflowState={forms,baselines,dateDirty,dateBaselines,dates,signature};
+  const review=()=>{
+    const m=calculatorMeasurements(),measurements=Object.keys(m).filter(k=>['fc_ppm','cc_ppm','ph','ph_bounds','ta_ppm','ch_ppm','cya_ppm'].includes(k));
+    const rows=[...$('doses').querySelectorAll('.dose-row')],parts=measurements.map(k=>(k==='ph_bounds'?'pH 8+':({fc_ppm:'FC',cc_ppm:'CC',ta_ppm:'TA',ch_ppm:'CH',cya_ppm:'CYA',ph:'pH'}[k]+' '+m[k])));
+    for(const row of rows)parts.push((row.querySelector('.amount').value||'Amount needed')+' '+row.querySelector('.unit').value+' '+row.querySelector('.product').selectedOptions[0]?.textContent+' · '+row.querySelector('.doseTime').value);
+    summary.hidden=!parts.length;summary.querySelector('summary').textContent='Review entry · '+measurements.length+' reading'+(measurements.length===1?'':'s')+' / '+rows.length+' addition'+(rows.length===1?'':'s');
+    $('entryReviewBody').innerHTML='<p class="help">Test first, then additions at their recorded times. Nothing saves until Save test / additions.</p>'+parts.map(s=>'<p>'+esc(s)+'</p>').join('');
+    const status=$('draftStatus');if(status)status.textContent=parts.length?measurements.length+' reading'+(measurements.length===1?'':'s')+' · '+rows.length+' addition'+(rows.length===1?'':'s')+' · not saved':'';
+  };
+  $('chemistryForm').addEventListener('input',review);$('chemistryForm').addEventListener('change',review);new MutationObserver(review).observe($('doses'),{childList:true,subtree:true});review();
+  for(const form of forms)for(const type of ['input','change'])form.addEventListener(type,e=>{if(e.target.matches('.date,.time'))dateDirty.add(form);});
+  // Commit acknowledgement and Undo wrap the existing final save pipeline once.
+  // Full refills are intentionally excluded: they change fill/config ownership.
+  const originalSave=save,savedGeneration=new Map();let undoBatch=null,undoTimer=null;
+  const notice=document.createElement('div');notice.id='appSaveNotice';notice.setAttribute('role','status');notice.hidden=true;notice.innerHTML='<span></span> <button type="button" class="secondary" id="undoLastSave">Undo</button>';document.body.append(notice);
+  const clearUndo=()=>{undoBatch=null;notice.hidden=true;clearTimeout(undoTimer);};
+  save=function(events,message,autoSync=true){
+    const before=new Set(read().map(e=>e.id)),form=message==='Chemistry saved'?$('chemistryForm'):message==='Soak saved'?$('soakForm'):['Maintenance saved','Exposure saved','New fill cycle saved'].includes(message)?$('maintenanceForm'):null;
+    const activity=$('maintenanceActivity').value;
+    const result=originalSave(events,message,autoSync),saved=read(),fresh=events.filter(e=>!before.has(e.id)&&saved.some(r=>r.id===e.id));
+    if(form&&fresh.length){
+      savedGeneration.set(form,(savedGeneration.get(form)||0)+1);
+      if(form.id==='maintenanceForm'&&safeActivity(activity)){prefs.service=activity;persist();}
+      queueMicrotask(()=>{resetBaseline(form);review();});
+      clearUndo();
+      if(!fresh.some(e=>e.type==='water_change'&&e.full)){
+        undoBatch={ids:fresh.map(e=>e.id),until:Date.now()+15000};notice.querySelector('span').textContent='Saved on this device · '+fresh.length+' entr'+(fresh.length===1?'y':'ies');notice.hidden=false;$('toast').textContent='';undoTimer=setTimeout(clearUndo,15000);
+      }
+    }
+    return result;
+  };
+  $('undoLastSave').onclick=()=>{
+    const batch=undoBatch;clearUndo();if(!batch||Date.now()>batch.until)return;
+    const current=activeEvents(),targets=current.filter(e=>batch.ids.includes(e.id));
+    if(targets.length!==batch.ids.length){$('toast').textContent='Entry changed since saving. Review it in History.';return;}
+    const markers=targets.map(record=>({...removalMarker(record),supersedes_event_id:record.id,record_removal:true,removed_record:record,notes:'Undid recent entry: '+label(record),correction_reason:'Undo recent save'}));
+    originalSave(markers,'Save undone');
+  };
+  // Stop repeated taps during async service saves; original validations and
+  // confirmation callbacks still decide whether a save is allowed.
+  for(const form of forms){const submit=form.onsubmit;let submitting=false;form.onsubmit=function(e){e.preventDefault();if(submitting)return;submitting=true;const button=form.querySelector('button[type="submit"]'),generation=savedGeneration.get(form)||0;if(button)button.disabled=true;const done=()=>{submitting=false;if(button)button.disabled=false;if((savedGeneration.get(form)||0)>generation){resetBaseline(form);review();}};try{const result=submit.call(this,e);if(result?.then)return result.finally(done);done();return result;}catch(error){done();throw error;}};}
+  // Restore a convenient service activity after the original form.reset().
+  $('maintenanceForm').addEventListener('reset',()=>queueMicrotask(()=>{if(safeActivity(prefs.service)){$('maintenanceActivity').value=prefs.service;maintenanceUI();}resetBaseline($('maintenanceForm'));}));
+  // Account detail belongs in Service; routine state stays as one compact badge.
+  const settings=$('appConnectionSettings'),status=document.querySelector('.status');
+  if(settings&&status){const detail=document.createElement('p');detail.append($('identity'));settings.append(detail);const button=document.createElement('button');button.type='button';button.className='app-sync-button';button.append($('syncState'));status.append(button);button.onclick=()=>{setTab('maintenance');settings.open=true;settings.scrollIntoView?.({behavior:'smooth',block:'center'});};}
+  const style=document.createElement('style');style.textContent='.entry-review{margin:10px 0;font-size:12px}.entry-review p{margin:6px 0}#appSaveNotice{position:fixed;bottom:calc(var(--app-nav-height,76px) + 86px);left:50%;transform:translateX(-50%);z-index:40;max-width:calc(100% - 24px);width:max-content;padding:8px 12px;background:#142d32;border:1px solid #4c786e;border-radius:12px;color:#adf0de;font-size:13px;box-shadow:0 5px 25px #0005}#appSaveNotice button{margin-left:8px;min-height:40px}.app-ui .status{background:transparent;border:0;justify-content:flex-end;padding:0;margin:0 0 6px}.app-sync-button{background:transparent;border:0;font-size:11px;padding:6px;color:#aac4ce}.chart-readout[data-pinned="true"]{border-color:#79d6c2}';document.head.append(style);
+  return {resetBaseline,review};
+}
 // END GENERATED APP UI
 migrateLegacy();fillNow();render();calculate();connect();
 setupAppUi();
+setupAppWorkflow();
 setupPwa();
 </script>
 </body>

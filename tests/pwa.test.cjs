@@ -8,7 +8,8 @@ assert.match(read('index.html'),/rel="manifest" href="manifest.webmanifest"/);
 function workerHarness(version,shared=new Map()){
  const listeners={},context={URL,Response,Request,Promise,Error,self:{registration:{scope:'https://spa.test/'},addEventListener:(name,fn)=>listeners[name]=fn},caches:{keys:async()=>[...shared.keys()],delete:async key=>shared.delete(key),open:async key=>{if(!shared.has(key))shared.set(key,new Map());const cache=shared.get(key);return {put:async(k,v)=>cache.set(k,v.clone()),match:async k=>cache.get(k)?.clone()}}},fetch:async url=>new Response(url==='https://spa.test/'?`const APP_VERSION='${version}'`:url.endsWith('.png')?'icon':'{}',{headers:{'Content-Type':url==='https://spa.test/'?'text/html':url.endsWith('.png')?'image/png':'application/manifest+json'}})};
  vm.createContext(context);vm.runInContext(read('src/sw-template.js').replaceAll('__APP_VERSION__',version),context);
- return {context,shared,install:()=>new Promise((resolve,reject)=>listeners.install({waitUntil:p=>p.then(resolve,reject)})),activate:()=>new Promise((resolve,reject)=>listeners.activate({waitUntil:p=>p.then(resolve,reject)})),fetch:(url,mode='navigate',method='GET')=>{let result=null;listeners.fetch({request:{url,mode,method},respondWith:p=>result=p});return result;}};
+ context.self.clients={matchAll:async()=>[]};context.self.skipWaiting=async()=>{context.skipCount=(context.skipCount||0)+1};
+ return {context,shared,message:event=>{let promise=Promise.resolve();listeners.message({...event,waitUntil:p=>promise=p});return promise;},install:()=>new Promise((resolve,reject)=>listeners.install({waitUntil:p=>p.then(resolve,reject)})),activate:()=>new Promise((resolve,reject)=>listeners.activate({waitUntil:p=>p.then(resolve,reject)})),fetch:(url,mode='navigate',method='GET')=>{let result=null;listeners.fetch({request:{url,mode,method},respondWith:p=>result=p});return result;}};
 }
 (async()=>{
  const h=workerHarness('6.51.0');const seen=[];const fetch=h.context.fetch;h.context.fetch=async(url,opts)=>{seen.push(opts);return fetch(url,opts)};
@@ -22,7 +23,13 @@ function workerHarness(version,shared=new Map()){
  h.shared.set('other-app-cache',new Map());await update.activate();assert.ok(!h.shared.has('j365-public-shell-6.51.0'));assert.ok(h.shared.has('other-app-cache'));
  const mismatch=workerHarness('6.53.0');mismatch.context.fetch=fetch;await assert.rejects(mismatch.install(),/version mismatch/);assert.equal(mismatch.shared.size,0);
  const failed=workerHarness('6.53.0');failed.context.fetch=async()=>new Response('error',{status:503});await assert.rejects(failed.install());assert.equal(failed.shared.size,0);
- assert.doesNotMatch(read('src/sw-template.js'),/self\.skipWaiting\(|clients\.claim\(/);
+ assert.equal(update.context.skipCount,undefined,'Install/activate never force a waiting update');
+ const messages=[],source={id:'own',type:'window',url:'https://spa.test/',postMessage:m=>messages.push(m)},event={source,data:{type:'J365_ACTIVATE_UPDATE'}};
+ await update.message({...event,source:{...source,url:'https://evil.test/'}});assert.equal(update.context.skipCount,undefined);
+ await update.message({...event,data:{type:'OTHER'}});assert.equal(update.context.skipCount,undefined);
+ update.context.self.clients.matchAll=async()=>[source,{id:'another',url:'https://spa.test/'}];await update.message(event);assert.equal(update.context.skipCount,undefined);assert.equal(messages.at(-1).type,'J365_UPDATE_BLOCKED');
+ update.context.self.clients.matchAll=async()=>[source];await update.message(event);assert.equal(update.context.skipCount,1);assert.equal(messages.at(-1).type,'J365_UPDATE_ACTIVATING');
+ assert.doesNotMatch(read('src/sw-template.js'),/clients\.claim\(/);
  const {servePwaAsset,PWA_ASSETS}=require('../src/pwa-assets.js'),original=global.fetch;
  try{for(const [asset,type]of Object.entries(PWA_ASSETS)){
   global.fetch=async(url,opts)=>{const target=new URL(url);assert.equal(target.origin+target.pathname,'https://jglisson8.github.io/j365-spa-logger'+asset);assert.match(target.search,/^\?public_asset=\d+$/);assert.equal(opts.redirect,'manual');assert.deepEqual(opts.headers,{Accept:type});return new Response(opts.method==='HEAD'?null:'public',{headers:{'Content-Type':type,'Set-Cookie':'no-forward'}})};
