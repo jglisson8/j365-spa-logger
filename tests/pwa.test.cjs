@@ -25,7 +25,7 @@ function workerHarness(version,shared=new Map()){
  assert.doesNotMatch(read('src/sw-template.js'),/self\.skipWaiting\(|clients\.claim\(/);
  const {servePwaAsset,PWA_ASSETS}=require('../src/pwa-assets.js'),original=global.fetch;
  try{for(const [asset,type]of Object.entries(PWA_ASSETS)){
-  global.fetch=async(url,opts)=>{assert.equal(url,'https://jglisson8.github.io/j365-spa-logger'+asset);assert.equal(opts.redirect,'manual');assert.deepEqual(opts.headers,{Accept:type});return new Response(opts.method==='HEAD'?null:'public',{headers:{'Content-Type':type,'Set-Cookie':'no-forward'}})};
+  global.fetch=async(url,opts)=>{const target=new URL(url);assert.equal(target.origin+target.pathname,'https://jglisson8.github.io/j365-spa-logger'+asset);assert.match(target.search,/^\?public_asset=\d+$/);assert.equal(opts.redirect,'manual');assert.deepEqual(opts.headers,{Accept:type});return new Response(opts.method==='HEAD'?null:'public',{headers:{'Content-Type':type,'Set-Cookie':'no-forward'}})};
   const r=await servePwaAsset(new Request('https://spa.test'+asset+'?url=https://untrusted.test',{headers:{Cookie:'secret',Authorization:'secret'}}));assert.equal(r.status,200);assert.equal(r.headers.get('Set-Cookie'),null);assert.equal(r.headers.get('Service-Worker-Allowed'),asset==='/sw.js'?'/':null);
   assert.equal((await servePwaAsset(new Request('https://spa.test'+asset,{method:'HEAD'}))).status,200);
   assert.equal((await servePwaAsset(new Request('https://spa.test'+asset,{method:'POST'}))).status,405);

@@ -10,7 +10,7 @@ async function servePwaAsset(request) {
   if (!type) return new Response('Not found', { status: 404 });
   if (!['GET', 'HEAD'].includes(request.method)) return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
   try {
-    const r = await fetch('https://jglisson8.github.io/j365-spa-logger' + path, {
+    const r = await fetch('https://jglisson8.github.io/j365-spa-logger' + path + '?public_asset=' + Date.now(), {
       method: request.method, redirect: 'manual', headers: { Accept: type }
     });
     const mime = r.headers.get('Content-Type')?.split(';')[0].trim();

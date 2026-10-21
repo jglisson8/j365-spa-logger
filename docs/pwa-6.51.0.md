@@ -11,3 +11,5 @@ Deployment: Worker 3.8 adds four fixed public asset routes and only `manifest-sr
 For every future app release, bump package and APP_VERSION together, run `node scripts/build-pwa.cjs`, then `npm test`. The regression checks reject a stale generated service-worker version. Logo icon resizing is reproducible using `swift -module-cache-path /tmp/j365-swift-module-cache scripts/build-icons.swift` on macOS. `scripts/check-pwa-browser.cjs` is an optional real Chromium check using Playwright via `J365_PLAYWRIGHT` when not locally installed; it uses an isolated test origin/profile and no private data.
 
 No chemistry equations, actual doses, historical records, schemas or cloud data are migrated. Notifications, background scheduled jobs and native-device integrations are intentionally outside this release.
+
+Live rollout verification caught upstream negative-cache propagation after the first pre-publication probes. The fixed public routes add a server-generated freshness query (never caller parameters), matching the existing interface proxy strategy, so missing-file cache entries cannot block installation or delay service-worker updates.
