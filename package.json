@@ -1,6 +1,6 @@
 {
   "name": "j365-spa-logger",
-  "version": "6.53.2",
+  "version": "6.54.0",
   "private": true,
   "description": "Static spa logger regression tooling; no production runtime dependencies",
   "engines": { "node": ">=24 <25" },
