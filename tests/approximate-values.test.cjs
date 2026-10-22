@@ -8,10 +8,11 @@ for(const [key,value]of [['fc_ppm',2.4],['ph',7.5],['ta_ppm',110]]){
 assert.match(run("chartOverview(null,'ph',[{v:7.4}],now)"),/Latest sample: 7.4/);assert.doesNotMatch(run("chartOverview(null,'ph',[{v:7.4}],now)"),/≈/);
 assert.match(run("chartOverview({...p,current:7.5,workingBound:true},'ph',[],now)"),/Scenario ≈/);
 assert.match(run("chartOverview({...p,current:null,blocked:true,status:'Need new sample'},'ph',[],now)"),/Estimate paused/);
-const key=run("chartKey('ph',null)");assert.match(key,/Model ≈/);assert.match(key,/Post-dose ≈/);assert.match(key,/Post-dose measured/);assert.match(key,/not sampled/);
+const key=run("chartKey('ph',null)");assert.equal((key.match(/Forecast ≈/g)||[]).length,1);assert.doesNotMatch(key,/Model ≈|Extrapolation/);assert.match(key,/Post-dose ≈/);assert.match(key,/Post-dose measured/);assert.match(key,/not sampled/);
 c.sample={id:'synthetic-sample',type:'chemistry',timestamp:'2026-10-02T10:00',ph:7.4};
 c.meta={key:'ph',plotted:[{e:c.sample,v:7.4}],start:now-7200000,end:now+7200000,history:{doseEstimates:[]},projection:{kind:'balance',key:'ph',t:now-7200000,horizon:now+7200000,points:[{t:now-7200000,v:7.4,rate:.02}]}};
 assert.match(run('inspectChartValue(meta,now).text'),/pH: ≈7.44/);assert.doesNotMatch(run('inspectChartValue(meta,modelTime(sample)).text'),/≈|estimated/i);
+for(const parameter of ['ph','ta_ppm']){c.meta.key=parameter;c.meta.projection.key=parameter;c.meta.projection.supported_until=now;assert.equal(run('inspectChartValue(meta,now).extended'),false);assert.equal(run('inspectChartValue(meta,now+3600000).extended'),true);assert.match(run('inspectChartValue(meta,now+3600000).text'),/Extended forecast · lower confidence/);}c.meta.key='ph';c.meta.projection.key='ph';delete c.meta.projection.supported_until;
 c.meta.history.doseEstimates=[{t:now,v:7.3,dose:{product:'Synthetic acid'}}];assert.match(run('inspectChartValue(meta,now).text'),/Post-dose ≈7.30/);
 c.meta.history.doseEstimates[0].scenario=true;assert.match(run('inspectChartValue(meta,now).text'),/Post-dose scenario ≈7.30/);
 run('config=null');c.facts={facts:{fc_ppm:{kind:'estimate',value:2.4,hi:2.4},ph:{kind:'sample',value:7.4,hi:7.4},ta_ppm:{kind:'carried',value:110,hi:110}}};

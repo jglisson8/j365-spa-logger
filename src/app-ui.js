@@ -54,9 +54,9 @@ function chartUiTimeAxis(start,end,g) {
 }
 function chartUiReadout(node,result,meta) {
   if(!node)return;
-  const bounded=meta.key==='ph'&&/8\+:|reported range/.test(result.text),approx=result.text.includes('≈'),kind=/conditional|scenario/i.test(result.text)?'Conditional scenario':/Post-dose measured/.test(result.text)?'Post-dose measured':/Post-dose/.test(result.text)?'Post-dose':/Calculated between/.test(result.text)?'Calculated between points':/Extrapolated/.test(result.text)?'Extrapolated':approx?'Model':/Nearest/.test(result.text)?'Nearest sample':Number.isFinite(result.value)?'Sample':'Forecast';
+  const bounded=meta.key==='ph'&&/8\+:|reported range/.test(result.text),approx=result.text.includes('≈'),kind=result.extended?'Extended forecast · lower confidence':/conditional|scenario/i.test(result.text)?'Conditional scenario':/Post-dose measured/.test(result.text)?'Post-dose measured':/Post-dose/.test(result.text)?'Post-dose':/Calculated between/.test(result.text)?'Calculated between points':approx?'Forecast':/Nearest/.test(result.text)?'Nearest sample':Number.isFinite(result.value)?'Sample':'Forecast';
   const value=bounded?(result.text.includes('8+:')?'8+':'Bounded sample'):Number.isFinite(result.value)?(approx?'≈':'')+result.value.toFixed(meta.key==='ph'||meta.key==='fc_ppm'?1:0)+(meta.key==='ph'?'':' ppm'):'Forecast paused';
-  node.innerHTML='<strong>'+esc(value+' · '+kind)+'</strong><span>'+esc(result.text.split(' · ')[0])+'</span>';node.title=result.text;
+  node.innerHTML='<strong>'+esc(value+' · '+(result.extended?'Extended forecast':kind))+'</strong><span>'+esc((result.extended?'Lower confidence · ':'')+result.text.split(' · ')[0])+'</span>';node.title=result.text;
 }
 function decorateAppCharts(targetId) {
   if(typeof window==='undefined'||!document.querySelector)return;
@@ -75,7 +75,7 @@ function decorateAppCharts(targetId) {
     const key=card.querySelector('.chart-key');
     if(key){for(const item of key.querySelectorAll('.key-item')){
       const label=item.textContent;
-      const present=label==='Sample'?meta.plotted.some(p=>!p.postDose):label==='8+'?meta.plotted.some(p=>p.bounded):label==='Calculated between points'?!!meta.history.bridges.length:label==='Model ≈'?!!svg.querySelector('[data-chart-trend="future"],[data-chart-trend="balance"]'):label==='Extrapolation'?!!svg.querySelector('[data-chart-trend="extrapolated"]'):label==='Post-dose ≈'?!!meta.history.doseEstimates.length:label==='Post-dose measured'?meta.plotted.some(p=>p.postDose):label==='Dose added'?!!svg.querySelector('[data-trend-marker="chemical_addition"]'):label==='Soak'?!!svg.querySelector('[data-trend-marker="soak"]'):label==='Refill'?!!svg.querySelector('[data-trend-marker="fill"]'):true;
+      const present=label==='Sample'?meta.plotted.some(p=>!p.postDose):label==='8+'?meta.plotted.some(p=>p.bounded):label==='Calculated between points'?!!meta.history.bridges.length:label==='Forecast ≈'?!!svg.querySelector('[data-chart-trend="future"],[data-chart-trend="balance"],[data-chart-trend="extrapolated"]'):label==='Post-dose ≈'?!!meta.history.doseEstimates.length:label==='Post-dose measured'?meta.plotted.some(p=>p.postDose):label==='Dose added'?!!svg.querySelector('[data-trend-marker="chemical_addition"]'):label==='Soak'?!!svg.querySelector('[data-trend-marker="soak"]'):label==='Refill'?!!svg.querySelector('[data-trend-marker="fill"]'):true;
       item.hidden=!present||(label==='Sample'&&meta.plotted.every(p=>p.e.chart_context_only));
     }if(svg.querySelector('[data-history-scenario]')){const item=document.createElement('span');item.className='key-item';item.setAttribute('data-between-scenario-key','');item.innerHTML='<span aria-hidden="true" class="key-swatch"><i class="key-line" style="border-top-color:#65e5bc;border-top-style:dotted"></i></span>Between-points scenario';item.title='Retrospective connection using bounded pH or calendar-day placement, not an exact history or forecast.';key.querySelector('.key-items')?.append(item);}}
     if(targetId==='expandedChart'){
