@@ -133,7 +133,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.53.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.53.1',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -217,7 +217,9 @@ function calculatorMeasurements(){const m={};for(const [field,key] of [['fc','fc
 function findCalculatorTest(ts,m){return activeEvents().find(e=>e.type==='chemistry'&&e.timestamp===ts&&(!Number.isFinite(entryTime(ts))||modelTime(e)===entryTime(ts))&&Object.entries(m).every(([k,v])=>JSON.stringify(e[k])===JSON.stringify(v)))}
 function warnRepeatedTest(ts,m){const recent=activeEvents().find(e=>e.type==='chemistry'&&e.timestamp!==ts&&Math.abs(parseSpaTime(e.timestamp)-parseSpaTime(ts))<=5*60000&&Object.entries(m).every(([k,v])=>JSON.stringify(e[k])===JSON.stringify(v)));return !recent||confirm('These same readings were logged at '+recent.timestamp+'. Save another measurement anyway? Cancel to avoid a duplicate.');}
 function convertActualDose(product,amount,from,to){if(from===to)return amount;const volume={'fl oz':29.57352,tbsp:14.78676,tsp:4.92892,cup:236.58816,mL:1};if(volume[from]&&volume[to])return amount*volume[from]/volume[to];const grams=balanceDoseMass({...((profileForChoice(product)?.legacy_reference)?{product}:productIdentity(product)),amount,unit:from});if(grams==null)return null;if(to==='grams')return grams;if(to==='oz by weight')return grams/28.3495;const perUnit=balanceDoseMass({...((profileForChoice(product)?.legacy_reference)?{product}:productIdentity(product)),amount:1,unit:to});return perUnit>0?grams/perUnit:null}
+function focusPendingCalculatedDose(){const input=$('calculatedActualAmount');if(!input)return;for(let parent=input.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;input.scrollIntoView?.({behavior:'smooth',block:'center'});input.focus({preventScroll:true});}
 function confirmCalculatedDose(product,suggested,unit){
+ if($('calculatedActualAmount')){alert('Finish the dose already awaiting confirmation: tap Add to draft or Cancel first. Your entered amount is unchanged.');focusPendingCalculatedDose();return false;}
  const existing=$('calculatedDoseConfirm');if(existing)existing.remove();
  const profile=profileForChoice(product);if(!profile){alert('Select a saved product before calculating.');return}const ts=timestamp($('chemistryForm')),m=calculatorMeasurements(),notes=text($('chemNotes').value),prior=findCalculatorTest(ts,m),panel=document.createElement('div');
  const calculation={volume_gallons:VOLUME_GAL,suggested_amount:suggested,unit,source_measurements:m,measurement_timestamp:ts,target_fc_ppm:num($('targetFc').value),target_ph:num($('targetPh').value)};
@@ -229,6 +231,7 @@ function confirmCalculatedDose(product,suggested,unit){
  addDose(product,amount,$('calculatedActualUnit').value,profile);const row=$('doses').lastElementChild;row.querySelector('.doseTime').value=addedAt.slice(11);row.dataset.doseDate=addedAt.slice(0,10);row.dataset.calculation=JSON.stringify(calculation);
  panel.innerHTML='<strong>✓ Dose added to draft</strong><span>Not saved yet. Press Save test / additions below to record everything.</span>';
  };
+ return true;
 }
 function calculate(){
  const out=[],fc=num($('fc').value),target=num($('targetFc').value),ph=$('ph').value==='8plus'?null:num($('ph').value),targetPh=num($('targetPh').value),drops=num($('acidDrops').value),bleach=productForRole('bleach'),acid=productForRole('acid');let bleachOz=null,acidAmount=null,acidUnit='tsp';
@@ -241,7 +244,8 @@ function calculate(){
  const tsp=density?profileMassAmount(acid,plan.grams,'tsp'):null,referenceTsp=density?profileMassAmount(acid,plan.reference,'tsp'):null;
  out.push('<div class="rec"><strong>'+esc(acid.name)+(plan.correction.factor<1?' · corrected starting dose':'')+': ≈'+acidAmount.toFixed(1)+' '+acidUnit+'</strong><span>'+(tsp!=null?(tsp/3).toFixed(1)+' tbsp · '+(tsp/48).toFixed(2)+' cup · '+Math.round(tsp*4.92892)+' mL · ':'')+plan.grams.toFixed(1)+' g ('+(plan.grams/28.3495).toFixed(2)+' oz by weight)</span><span>'+(plan.correction.factor<1?'Taylor reference: '+(referenceTsp!=null?referenceTsp.toFixed(1)+' tsp':plan.reference.toFixed(1)+' g')+'. Personal response correction: '+Math.round(plan.correction.factor*100)+'% of reference ('+plan.correction.count+' usable dose/retest pair(s); '+(plan.correction.provisional?'provisional':'approximate')+'). ':'')+'Taylor-equivalent estimate for '+VOLUME_GAL+' gallons to reach pH '+targetPh.toFixed(1)+'. Not a guaranteed endpoint. '+(density?'Volume conversion uses the saved density; level scoops are approximate.':'No volume conversion is assumed; weigh this product.')+(drops>3?' Add half, circulate, retest, then add more only if needed.':'')+'</span><button class="secondary" type="button" id="useAcid">Add calculated dose</button></div>');
  }}
- $('recommendations').innerHTML=out.join('')||'<div class="help">Enter measured values to calculate doses.</div>';if($('useBleach'))$('useBleach').onclick=()=>confirmCalculatedDose(productChoice(bleach),bleachOz,'fl oz');if($('useAcid'))$('useAcid').onclick=()=>confirmCalculatedDose(productChoice(acid),acidAmount,acidUnit);refreshProductBaking();
+ const pending=$('calculatedActualAmount')?.closest('#calculatedDoseConfirm');
+ $('recommendations').innerHTML=out.join('')||'<div class="help">Enter measured values to calculate doses.</div>';if(pending)$('recommendations').append(pending);if($('useBleach'))$('useBleach').onclick=()=>confirmCalculatedDose(productChoice(bleach),bleachOz,'fl oz');if($('useAcid'))$('useAcid').onclick=()=>confirmCalculatedDose(productChoice(acid),acidAmount,acidUnit);refreshProductBaking();
 }
 ['fc','ph','targetFc','targetPh','acidDrops'].forEach(k=>$(k).addEventListener('input',calculate));
 $('chemistryForm').onsubmit=e=>{e.preventDefault();const ts=timestamp(e.currentTarget),notes=text($('chemNotes').value),m=calculatorMeasurements();if(num($('acidDrops').value)!=null&&m.ph==null&&!m.ph_bounds){alert('Enter the measured pH with the acid-demand result.');return}if(Object.keys(m).length&&!findCalculatorTest(ts,m)&&!warnRepeatedTest(ts,m))return;const events=[];if(Object.keys(m).length&&!findCalculatorTest(ts,m))events.push({...base('chemistry',ts),...m,notes});for(const row of document.querySelectorAll('.dose-row')){const amount=num(row.querySelector('.amount').value);if(!(amount>0)){alert('Enter a positive dose amount or remove the row.');return}events.push({...base('chemical_addition',(row.dataset.doseDate||e.currentTarget.querySelector('.date').value)+'T'+row.querySelector('.doseTime').value),...productIdentity(row.querySelector('.product').value,row.dataset.productProfile?JSON.parse(row.dataset.productProfile):null),amount,unit:row.querySelector('.unit').value,notes,...(row.dataset.calculation?{calculation:JSON.parse(row.dataset.calculation),entry_source:'calculator_confirmed_actual'}:{})})}if(!events.length&&notes&&!findCalculatorTest(ts,m))events.push({...base('note',ts),notes});if(!events.length&&!findCalculatorTest(ts,m)){alert('Enter a measurement, addition, or note.');return}save(events,'Chemistry saved');document.querySelectorAll('#chemistryForm input:not(.date):not(.time)').forEach(x=>{if(x.id!=='targetFc')x.value=''});$('ph').value='';$('doses').innerHTML='';$('chemNotes').value='';calculate();fillNow()};
@@ -1552,7 +1556,7 @@ function setupAppWorkflow(){
     rememberDose(product,unit);
   };
   const originalConfirm=confirmCalculatedDose;confirmCalculatedDose=function(product,amount,unit){
-    originalConfirm(product,amount,unit);const u=preferredUnit(product);
+    if(!originalConfirm(product,amount,unit))return;const u=preferredUnit(product);
     // Convert only the untouched, newly opened suggestion. Subsequent user unit
     // changes retain the entered number, matching the established unit contract.
     if(u&&$('calculatedActualUnit')&&[...$('calculatedActualUnit').options].some(o=>o.value===u)){
@@ -1577,13 +1581,14 @@ function setupAppWorkflow(){
   forms.forEach(resetBaseline);appWorkflowState={forms,baselines,dateDirty,dateBaselines,dates,signature};
   const review=()=>{
     const m=calculatorMeasurements(),measurements=Object.keys(m).filter(k=>['fc_ppm','cc_ppm','ph','ph_bounds','ta_ppm','ch_ppm','cya_ppm'].includes(k));
-    const rows=[...$('doses').querySelectorAll('.dose-row')],parts=measurements.map(k=>(k==='ph_bounds'?'pH 8+':({fc_ppm:'FC',cc_ppm:'CC',ta_ppm:'TA',ch_ppm:'CH',cya_ppm:'CYA',ph:'pH'}[k]+' '+m[k])));
+    const pending=$('calculatedActualAmount'),rows=[...$('doses').querySelectorAll('.dose-row')],parts=measurements.map(k=>(k==='ph_bounds'?'pH 8+':({fc_ppm:'FC',cc_ppm:'CC',ta_ppm:'TA',ch_ppm:'CH',cya_ppm:'CYA',ph:'pH'}[k]+' '+m[k])));
+    if(pending)parts.push('Dose awaiting confirmation: '+(pending.value||'Amount needed')+' '+$('calculatedActualUnit').value+' · tap Add to draft or Cancel');
     for(const row of rows)parts.push((row.querySelector('.amount').value||'Amount needed')+' '+row.querySelector('.unit').value+' '+row.querySelector('.product').selectedOptions[0]?.textContent+' · '+row.querySelector('.doseTime').value);
     summary.hidden=!parts.length;summary.querySelector('summary').textContent='Review entry · '+measurements.length+' reading'+(measurements.length===1?'':'s')+' / '+rows.length+' addition'+(rows.length===1?'':'s');
     $('entryReviewBody').innerHTML='<p class="help">Test first, then additions at their recorded times. Nothing saves until Save test / additions.</p>'+parts.map(s=>'<p>'+esc(s)+'</p>').join('');
-    const status=$('draftStatus');if(status)status.textContent=parts.length?measurements.length+' reading'+(measurements.length===1?'':'s')+' · '+rows.length+' addition'+(rows.length===1?'':'s')+' · not saved':'';
+    const status=$('draftStatus');if(status)status.textContent=parts.length?measurements.length+' reading'+(measurements.length===1?'':'s')+' · '+rows.length+' addition'+(rows.length===1?'':'s')+(pending?' · dose awaiting confirmation':'')+' · not saved':'';
   };
-  $('chemistryForm').addEventListener('input',review);$('chemistryForm').addEventListener('change',review);new MutationObserver(review).observe($('doses'),{childList:true,subtree:true});review();
+  $('chemistryForm').addEventListener('input',review);$('chemistryForm').addEventListener('change',review);new MutationObserver(review).observe($('doses'),{childList:true,subtree:true});new MutationObserver(review).observe($('recommendations'),{childList:true,subtree:true});review();
   for(const form of forms)for(const type of ['input','change'])form.addEventListener(type,e=>{if(e.target.matches('.date,.time'))dateDirty.add(form);});
   // Commit acknowledgement and Undo wrap the existing final save pipeline once.
   // Full refills are intentionally excluded: they change fill/config ownership.
@@ -1614,7 +1619,7 @@ function setupAppWorkflow(){
   };
   // Stop repeated taps during async service saves; original validations and
   // confirmation callbacks still decide whether a save is allowed.
-  for(const form of forms){const submit=form.onsubmit;let submitting=false;form.onsubmit=function(e){e.preventDefault();if(submitting)return;submitting=true;const button=form.querySelector('button[type="submit"]'),generation=savedGeneration.get(form)||0;if(button)button.disabled=true;const done=()=>{submitting=false;if(button)button.disabled=false;if((savedGeneration.get(form)||0)>generation){resetBaseline(form);review();}};try{const result=submit.call(this,e);if(result?.then)return result.finally(done);done();return result;}catch(error){done();throw error;}};}
+  for(const form of forms){const submit=form.onsubmit;let submitting=false;form.onsubmit=function(e){e.preventDefault();if(form.id==='chemistryForm'&&$('calculatedActualAmount')){review();alert('A dose is awaiting confirmation. Tap Add to draft to include it, or Cancel to save without it. Your readings and dose have not been saved or cleared.');focusPendingCalculatedDose();return;}if(submitting)return;submitting=true;const button=form.querySelector('button[type="submit"]'),generation=savedGeneration.get(form)||0;if(button)button.disabled=true;const done=()=>{submitting=false;if(button)button.disabled=false;if((savedGeneration.get(form)||0)>generation){resetBaseline(form);review();}};try{const result=submit.call(this,e);if(result?.then)return result.finally(done);done();return result;}catch(error){done();throw error;}};}
   // Restore a convenient service activity after the original form.reset().
   $('maintenanceForm').addEventListener('reset',()=>queueMicrotask(()=>{if(safeActivity(prefs.service)){$('maintenanceActivity').value=prefs.service;maintenanceUI();}resetBaseline($('maintenanceForm'));}));
   // Account detail belongs in Service; routine state stays as one compact badge.

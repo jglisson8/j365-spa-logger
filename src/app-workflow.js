@@ -25,7 +25,7 @@ function setupAppWorkflow(){
     rememberDose(product,unit);
   };
   const originalConfirm=confirmCalculatedDose;confirmCalculatedDose=function(product,amount,unit){
-    originalConfirm(product,amount,unit);const u=preferredUnit(product);
+    if(!originalConfirm(product,amount,unit))return;const u=preferredUnit(product);
     // Convert only the untouched, newly opened suggestion. Subsequent user unit
     // changes retain the entered number, matching the established unit contract.
     if(u&&$('calculatedActualUnit')&&[...$('calculatedActualUnit').options].some(o=>o.value===u)){
@@ -50,13 +50,14 @@ function setupAppWorkflow(){
   forms.forEach(resetBaseline);appWorkflowState={forms,baselines,dateDirty,dateBaselines,dates,signature};
   const review=()=>{
     const m=calculatorMeasurements(),measurements=Object.keys(m).filter(k=>['fc_ppm','cc_ppm','ph','ph_bounds','ta_ppm','ch_ppm','cya_ppm'].includes(k));
-    const rows=[...$('doses').querySelectorAll('.dose-row')],parts=measurements.map(k=>(k==='ph_bounds'?'pH 8+':({fc_ppm:'FC',cc_ppm:'CC',ta_ppm:'TA',ch_ppm:'CH',cya_ppm:'CYA',ph:'pH'}[k]+' '+m[k])));
+    const pending=$('calculatedActualAmount'),rows=[...$('doses').querySelectorAll('.dose-row')],parts=measurements.map(k=>(k==='ph_bounds'?'pH 8+':({fc_ppm:'FC',cc_ppm:'CC',ta_ppm:'TA',ch_ppm:'CH',cya_ppm:'CYA',ph:'pH'}[k]+' '+m[k])));
+    if(pending)parts.push('Dose awaiting confirmation: '+(pending.value||'Amount needed')+' '+$('calculatedActualUnit').value+' · tap Add to draft or Cancel');
     for(const row of rows)parts.push((row.querySelector('.amount').value||'Amount needed')+' '+row.querySelector('.unit').value+' '+row.querySelector('.product').selectedOptions[0]?.textContent+' · '+row.querySelector('.doseTime').value);
     summary.hidden=!parts.length;summary.querySelector('summary').textContent='Review entry · '+measurements.length+' reading'+(measurements.length===1?'':'s')+' / '+rows.length+' addition'+(rows.length===1?'':'s');
     $('entryReviewBody').innerHTML='<p class="help">Test first, then additions at their recorded times. Nothing saves until Save test / additions.</p>'+parts.map(s=>'<p>'+esc(s)+'</p>').join('');
-    const status=$('draftStatus');if(status)status.textContent=parts.length?measurements.length+' reading'+(measurements.length===1?'':'s')+' · '+rows.length+' addition'+(rows.length===1?'':'s')+' · not saved':'';
+    const status=$('draftStatus');if(status)status.textContent=parts.length?measurements.length+' reading'+(measurements.length===1?'':'s')+' · '+rows.length+' addition'+(rows.length===1?'':'s')+(pending?' · dose awaiting confirmation':'')+' · not saved':'';
   };
-  $('chemistryForm').addEventListener('input',review);$('chemistryForm').addEventListener('change',review);new MutationObserver(review).observe($('doses'),{childList:true,subtree:true});review();
+  $('chemistryForm').addEventListener('input',review);$('chemistryForm').addEventListener('change',review);new MutationObserver(review).observe($('doses'),{childList:true,subtree:true});new MutationObserver(review).observe($('recommendations'),{childList:true,subtree:true});review();
   for(const form of forms)for(const type of ['input','change'])form.addEventListener(type,e=>{if(e.target.matches('.date,.time'))dateDirty.add(form);});
   // Commit acknowledgement and Undo wrap the existing final save pipeline once.
   // Full refills are intentionally excluded: they change fill/config ownership.
@@ -87,7 +88,7 @@ function setupAppWorkflow(){
   };
   // Stop repeated taps during async service saves; original validations and
   // confirmation callbacks still decide whether a save is allowed.
-  for(const form of forms){const submit=form.onsubmit;let submitting=false;form.onsubmit=function(e){e.preventDefault();if(submitting)return;submitting=true;const button=form.querySelector('button[type="submit"]'),generation=savedGeneration.get(form)||0;if(button)button.disabled=true;const done=()=>{submitting=false;if(button)button.disabled=false;if((savedGeneration.get(form)||0)>generation){resetBaseline(form);review();}};try{const result=submit.call(this,e);if(result?.then)return result.finally(done);done();return result;}catch(error){done();throw error;}};}
+  for(const form of forms){const submit=form.onsubmit;let submitting=false;form.onsubmit=function(e){e.preventDefault();if(form.id==='chemistryForm'&&$('calculatedActualAmount')){review();alert('A dose is awaiting confirmation. Tap Add to draft to include it, or Cancel to save without it. Your readings and dose have not been saved or cleared.');focusPendingCalculatedDose();return;}if(submitting)return;submitting=true;const button=form.querySelector('button[type="submit"]'),generation=savedGeneration.get(form)||0;if(button)button.disabled=true;const done=()=>{submitting=false;if(button)button.disabled=false;if((savedGeneration.get(form)||0)>generation){resetBaseline(form);review();}};try{const result=submit.call(this,e);if(result?.then)return result.finally(done);done();return result;}catch(error){done();throw error;}};}
   // Restore a convenient service activity after the original form.reset().
   $('maintenanceForm').addEventListener('reset',()=>queueMicrotask(()=>{if(safeActivity(prefs.service)){$('maintenanceActivity').value=prefs.service;maintenanceUI();}resetBaseline($('maintenanceForm'));}));
   // Account detail belongs in Service; routine state stays as one compact badge.
