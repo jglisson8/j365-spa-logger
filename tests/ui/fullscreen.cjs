@@ -20,6 +20,10 @@ const html=fs.readFileSync(require('node:path').join(__dirname,'../../index.html
  // Expanded mode must not hide paused/conditional/extrapolated forecast warnings.
  $('expandedChart').innerHTML='<div class="trend-card"><h3>Title</h3><p class="help chart-targets">Alerts 1–10</p><p class="help chart-warning" role="status">Estimate paused: insufficient data</p></div>';
  assert.notEqual(w.getComputedStyle(d.querySelector('#expandedChart .chart-warning')).display,'none');
- assert.notEqual(w.getComputedStyle(d.querySelector('#expandedChart .chart-targets')).display,'none');
+ // Target lines/key remain on the plot; the verbose summary is available in
+ // Custom / info rather than consuming a separate row of the expanded screen.
+ assert.equal(w.getComputedStyle(d.querySelector('#expandedChart .chart-targets')).display,'none');
+ assert.equal($('chartViewer').style.padding,'');assert.equal($('chartViewer').style.overflow,'');
+ assert.match($('chartFullscreen').getAttribute('aria-label'),/full screen/i);
  dom.window.close();console.log('Fullscreen, landscape fallback, ownership cleanup and compact chart controls passed');
 })().catch(e=>{console.error(e);process.exitCode=1});
