@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),{JSDOM}=require('jsdom');
 const source=fs.readFileSync(path.join(__dirname,'../src/pwa-client.js'),'utf8');
 (async()=>{
- const dom=new JSDOM('<div class="status"></div><form><input id="unsaved" value="my draft"></form>',{url:'https://j365-spa-sync.jglisson8.workers.dev/',runScripts:'outside-only'}),w=dom.window;
+ const dom=new JSDOM('<div class="status"></div><details id="appConnectionSettings"><summary>App &amp; connection</summary></details><form><input id="unsaved" value="my draft"></form>',{url:'https://j365-spa-sync.jglisson8.workers.dev/',runScripts:'outside-only'}),w=dom.window;
  const listeners={},swListeners={},posted=[],worker={postMessage:m=>posted.push(m),state:'installed'},reg={active:{},waiting:worker,update:async()=>{},addEventListener:(type,fn)=>listeners[type]=fn};let registration,dirty=false;
  w.appHasUnsavedWork=()=>dirty;
  Object.defineProperty(w.navigator,'serviceWorker',{value:{register:async(...args)=>{registration=args;return reg},ready:Promise.resolve(reg),addEventListener:(type,fn)=>swListeners[type]=fn}});
@@ -9,15 +9,17 @@ const source=fs.readFileSync(path.join(__dirname,'../src/pwa-client.js'),'utf8')
  assert.equal(registration[0],'sw.js');assert.equal(registration[1].scope,'./');assert.equal(registration[1].updateViaCache,'none');
  assert.match(w.document.getElementById('pwaConnection').textContent,/Offline.*save on this device/);assert.match(w.document.getElementById('pwaReady').textContent,/Ready for offline startup/);
  assert.equal(w.document.getElementById('pwaUpdate').hidden,false);assert.equal(w.document.getElementById('unsaved').value,'my draft');
+ assert.equal(w.document.getElementById('pwaServiceUpdate').hidden,false);assert.equal(w.document.getElementById('pwaUpdateNow').textContent,'Update available — update now');assert.ok(w.document.getElementById('pwaUpdateNow').classList.contains('pwa-update-link'));assert.ok(w.document.getElementById('appConnectionSettings').contains(w.document.getElementById('pwaServiceUpdate')));
  let prompted=0;const event=new w.Event('beforeinstallprompt',{cancelable:true});event.prompt=async()=>prompted++;event.userChoice=Promise.resolve({outcome:'accepted'});w.dispatchEvent(event);
  assert.equal(event.defaultPrevented,true);assert.equal(w.document.getElementById('pwaInstall').hidden,false);w.document.getElementById('pwaInstall').click();await new Promise(r=>setImmediate(r));assert.equal(prompted,1);
  w.dispatchEvent(new w.Event('appinstalled'));assert.equal(w.document.getElementById('pwaHelp').hidden,true);
  Object.defineProperty(w.navigator,'onLine',{value:true});w.dispatchEvent(new w.Event('online'));assert.equal(w.document.getElementById('pwaConnection').textContent,'');
  assert.equal(posted.length,0,'Waiting update never activates automatically');dirty=true;w.document.getElementById('pwaUpdateNow').click();assert.equal(posted.length,0);assert.match(w.document.getElementById('pwaUpdateText').textContent,/unsaved/);
- dirty=false;w.document.getElementById('pwaUpdateNow').click();assert.equal(posted[0].type,'J365_ACTIVATE_UPDATE');assert.equal(w.document.getElementById('pwaUpdateNow').disabled,true);
- swListeners.message({source:worker,data:{type:'J365_UPDATE_BLOCKED'}});assert.equal(w.document.getElementById('pwaUpdateNow').disabled,false);assert.match(w.document.getElementById('pwaUpdateText').textContent,/Close other/);
+ dirty=false;w.document.getElementById('pwaServiceUpdate').click();assert.equal(posted[0].type,'J365_ACTIVATE_UPDATE');assert.equal(w.document.getElementById('pwaUpdateNow').disabled,true);assert.equal(w.document.getElementById('pwaServiceUpdate').disabled,true);w.document.getElementById('pwaServiceUpdate').click();assert.equal(posted.length,1);
+ swListeners.message({source:worker,data:{type:'J365_UPDATE_BLOCKED'}});assert.equal(w.document.getElementById('pwaUpdateNow').disabled,false);assert.equal(w.document.getElementById('pwaServiceUpdate').disabled,false);assert.match(w.document.getElementById('pwaUpdateText').textContent,/Close other/);
  w.document.getElementById('pwaUpdateNow').click();dirty=true;swListeners.controllerchange();assert.match(w.document.getElementById('pwaUpdateText').textContent,/Save or finish/);assert.equal(w.document.getElementById('unsaved').value,'my draft');
  assert.doesNotMatch(source,/\.skipWaiting\(/);dom.window.close();
+ const current=new JSDOM('<div class="status"></div><details id="appConnectionSettings"></details>',{url:'https://j365-spa-sync.jglisson8.workers.dev/',runScripts:'outside-only'}),currentReg={active:{},waiting:null,addEventListener(){},update:async()=>{}};Object.defineProperty(current.window.navigator,'serviceWorker',{value:{register:async()=>currentReg,ready:Promise.resolve(currentReg),addEventListener(){}}});current.window.eval(source+';setupPwa()');await new Promise(r=>setImmediate(r));assert.equal(current.window.document.getElementById('pwaUpdate').hidden,true);assert.equal(current.window.document.getElementById('pwaServiceUpdate').hidden,true);current.window.close();
  const pages=new JSDOM('<div class="status"></div>',{url:'https://jglisson8.github.io/j365-spa-logger/',runScripts:'outside-only'});pages.window.eval(source+';setupPwa()');assert.equal(pages.window.document.getElementById('pwaStatus'),null);pages.window.close();
  console.log('PASS: secure-origin install prompt, offline/ready status, non-disruptive update notice, unfinished field preserved, online restoration and no registration on public Pages');
 })().catch(e=>{console.error(e);process.exitCode=1});
