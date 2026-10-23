@@ -133,7 +133,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.54.2',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.54.3',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -885,12 +885,12 @@ function chartBoundsSvg(key,x,y){const b=chartBounds(key),preferred=phPreferred(
 function projectionSvg(projection,x,y,end){
  if(projection.kind==='balance'){const stop=Math.min(end,projection.horizon),segments=[];for(let i=0;i<projection.points.length;i++){const a=projection.points[i],start=Math.max(a.t,x.start??a.t),finish=Math.min(stop,projection.points[i+1]?.t??stop);if(finish<start)continue;let out=[];for(let j=0;j<=80;j++){const t=start+(finish-start)*j/80,v=projection.gaps?.some(g=>t>=g.start&&t<g.end)?null:balancePointValue(a,t);if(Number.isFinite(v))out.push(x({timestamp:new Date(t).toISOString()})+','+y(v));else if(out.length){segments.push(out);out=[]}}if(out.length)segments.push(out);const b=projection.points[i+1];if(b&&b.t<=stop&&!projection.gaps?.some(g=>b.t>=g.start&&b.t<=g.end)){const v=balancePointValue(a,b.t);if(Number.isFinite(v)&&Math.abs(v-b.v)>1e-8)segments.push([x({timestamp:new Date(b.t).toISOString()})+','+y(v),x({timestamp:new Date(b.t).toISOString()})+','+y(b.v)])}}return segments.filter(s=>s.length>1).map(s=>'<polyline data-chart-trend="balance"'+(projection.partialAcid?.scenario?' data-partial-acid-scenario="true"':'')+' points="'+s.join(' ')+'" fill="none" stroke="#ed8cfa" stroke-dasharray="7 5" stroke-width="2"><title>'+esc(projection.partialAcid?.scenario?'Conditional partial-dose pH scenario; bounded starting sample, not an exact endpoint or measurement':projection.status)+'</title></polyline>').join('')}
  if(!projection.model)return '';
- const stop=Math.min(end,projection.horizon),anchors=projection.points||[{t:projection.t,v:projection.value}],points=[];
- for(let i=0;i<anchors.length;i++){
-  const a=anchors[i],finish=Math.min(stop,anchors[i+1]?.t??stop);if(a.t>stop)break;
-  for(let j=0;j<=40;j++){const t=a.t+(finish-a.t)*j/40,v=fcChartValue(projection,a,t);points.push(x({timestamp:new Date(t).toISOString()})+','+y(v))}
- }
- let extrapolated='';if(end>projection.horizon){const a=anchors.at(-1),begin=Math.max(a.t,projection.horizon);if(end>begin){const extended=Array.from({length:41},(_,i)=>{const t=begin+(end-begin)*i/40;return x({timestamp:new Date(t).toISOString()})+','+y(fcChartValue(projection,a,t))});extrapolated='<polyline data-chart-trend="extrapolated" points="'+extended.join(' ')+'" fill="none" stroke="#ed8cfa" opacity=".45" stroke-dasharray="3 6" stroke-width="2"><title>Low-confidence extrapolation beyond observed intervals; test to confirm.</title></polyline>'}}
+ const anchors=projection.points||[{t:projection.t,v:projection.value}];
+ // Both styles follow the same piecewise forecast. A later dose/soak anchor
+ // must not erase the extension between the support boundary and that event.
+ const path=(begin,stop)=>{const out=[];if(stop<begin)return out;for(let i=0;i<anchors.length;i++){const a=anchors[i],from=Math.max(a.t,begin),finish=Math.min(stop,anchors[i+1]?.t??stop);if(finish<from)continue;for(let j=0;j<=40;j++){const t=from+(finish-from)*j/40;out.push(x({timestamp:new Date(t).toISOString()})+','+y(fcChartValue(projection,a,t)))}}return out;};
+ const begin=x.start??anchors[0]?.t??projection.t,points=path(begin,Math.min(end,projection.horizon));
+ let extrapolated='';if(end>projection.horizon){const extended=path(Math.max(begin,projection.horizon),end);if(extended.length>1)extrapolated='<polyline data-chart-trend="extrapolated" points="'+extended.join(' ')+'" fill="none" stroke="#ed8cfa" opacity=".45" stroke-dasharray="3 6" stroke-width="2"><title>Low-confidence extrapolation beyond observed intervals; test to confirm.</title></polyline>'}
  return (points.length<2?'':'<polyline data-chart-trend="future" points="'+points.join(' ')+'" fill="none" stroke="#ed8cfa" stroke-dasharray="7 5" stroke-width="2"><title>Estimate from the latest sample, including supported logged dose changes. '+esc(projection.status)+'</title></polyline>')+extrapolated;
 }
 function forecastSummary(projection){
