@@ -30,6 +30,7 @@ function appHasUnsavedWork(){
 function setupAppWorkflow(){
   if(typeof window==='undefined'||!document.querySelector)return;
   setupSoakAeration();
+  setupStripTesting();
   const prefKey='j365_app_choices_v1';let prefs;
   try{prefs=JSON.parse(localStorage.getItem(prefKey)||'{}');if(!prefs||typeof prefs!=='object'||Array.isArray(prefs))prefs={};}catch{prefs={};}
   const persist=()=>{try{localStorage.setItem(prefKey,JSON.stringify(prefs));}catch{ /* optional preferences must never stop entry */ }};
