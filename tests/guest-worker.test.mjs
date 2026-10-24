@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {createPrivateKey} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 execFileSync(process.execPath,['scripts/build-guest-worker.cjs','--check']);
-const {default:worker,guestPolicy,guestConstruct,guestPublicEvent,guestStrip,guestPkcs8,seal}=await import('../worker/j365-worker-v3.9.mjs');
+const {default:worker,guestPolicy,guestConstruct,guestPublicEvent,guestStrip,guestPkcs8,guestInviteDigest,seal}=await import('../worker/j365-worker-v4.mjs');
 const now=Date.now(),hours=3600000,profile={schema_version:1,id:'bleach-test',revision:1,name:'Test bleach',family:'hypochlorite',form:'liquid',concentration:{basis:'active_mass_percent',value:7.5}};
 const grant={id:'grant-123456',user_id:17,login:'TestGuest',starts_at:new Date(now-24*hours).toISOString(),ends_at:new Date(now+24*hours).toISOString(),revoked:false,instructions:'Use strips',products:[{profile,max_single_mL:100,max_daily_mL:150}]};
 const identity={user:'TestGuest',user_id:17,grant_id:grant.id,grant},config={schema_version:2,spa:{model:'Jacuzzi J-365',volume_gallons:395},current_fill_cycle_id:'fill1'};
@@ -32,11 +32,12 @@ env.GITHUB_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\n'+Buffer.from(await crypto.
 const pkcs1=createPrivateKey(env.GITHUB_PRIVATE_KEY).export({format:'pem',type:'pkcs1'});assert.deepEqual(Buffer.from(guestPkcs8(pkcs1)),Buffer.from(await crypto.subtle.exportKey('pkcs8',keys.privateKey)));
 for(const wrapped of [JSON.stringify(pkcs1),pkcs1.replaceAll('\n','\\n'),Buffer.from(pkcs1).toString('base64')])assert.deepEqual(Buffer.from(guestPkcs8(wrapped)),Buffer.from(guestPkcs8(pkcs1)));
 for(const invalid of ['not a key','"broken json','-----BEGIN RSA PRIVATE KEY-----\n?bad?\n-----END RSA PRIVATE KEY-----'])assert.throws(()=>guestPkcs8(invalid),e=>e.status===503&&!e.message.includes('?bad?'));
-let policy={schema_version:1,grants:[grant]},calls=[],documents=new Map(),head=1,conflictOnce=false,postedTree=null,commitDocument=null;
+let policy={schema_version:1,grants:[grant]},policySha='policy-sha',calls=[],documents=new Map(),head=1,conflictOnce=false,postedTree=null,commitDocument=null;
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});
 globalThis.fetch=async(url,options={})=>{const u=new URL(url),p=u.pathname;calls.push([p,options.method||'GET']);
  if(p.endsWith('/access_tokens')){const body=JSON.parse(options.body);assert.deepEqual(body,{repositories:['j365-spa-data'],permissions:{contents:'write'}});const jwt=options.headers.Authorization.slice(7).split('.');assert.equal(JSON.parse(Buffer.from(jwt[0],'base64url')).alg,'RS256');assert.ok(await crypto.subtle.verify('RSASSA-PKCS1-v1_5',keys.publicKey,Buffer.from(jwt[2],'base64url'),new TextEncoder().encode(jwt[0]+'.'+jwt[1])));return json({token:'installation-token',expires_at:new Date(now+hours).toISOString()});}
- if(p.endsWith('/contents/guest-access.json'))return json({sha:'policy-sha',content:Buffer.from(JSON.stringify(policy)).toString('base64')});
+ if(p.endsWith('/contents/guest-access.json')){if(options.method==='PUT'){const body=JSON.parse(options.body);assert.equal(body.sha,policySha);policy=JSON.parse(Buffer.from(body.content,'base64').toString());policySha+='x';return json({content:{sha:policySha}});}return json({sha:policySha,content:Buffer.from(JSON.stringify(policy)).toString('base64')});}
+ if(p.endsWith('/users/TestGuest'))return json({id:17,login:'TestGuest',type:'User'});
  if(p.endsWith('/contents/config.json'))return json({sha:'config-sha',content:Buffer.from(JSON.stringify(config)).toString('base64')});
  const match=p.match(/\/contents\/(events\/.*\.json)$/);if(match){const doc=documents.get(match[1]);return doc?json({sha:'file-sha',content:Buffer.from(JSON.stringify(doc)).toString('base64')}):json({message:'Not found'},404);}
  if(p.endsWith('/git/ref/heads/main'))return json({object:{sha:'head'+head}});
@@ -63,4 +64,38 @@ const collision=new Request('https://spa.test/api/guest/entries',{method:'POST',
 policy={schema_version:1,grants:[{...grant,ends_at:new Date(now-1000).toISOString()}]};response=await worker.fetch(new Request('https://spa.test/api/me',{headers}),env);assert.equal(response.status,403);
 policy={schema_version:1,grants:[{...grant,starts_at:new Date(now+1000).toISOString()}]};response=await worker.fetch(new Request('https://spa.test/api/me',{headers}),env);assert.equal(response.status,403);
 policy={schema_version:1,grants:[{...grant,revoked:true}]};response=await worker.fetch(new Request('https://spa.test/api/me',{headers}),env);assert.equal(response.status,403);response=await worker.fetch(post(),env);assert.equal(response.status,403);
+// Owner-created invitation: no guest GitHub login, token or repo membership.
+// Default unset flag permits only explicit owner-created invitations; false is
+// an emergency kill switch. Legacy GitHub grants still require explicit true.
+delete env.GUEST_ACCESS_ENABLED;policy={schema_version:1,grants:[]};
+const ownerHeaders={Cookie:'__Host-j365='+ownerCookie,Origin:'https://spa.test','Content-Type':'application/json','X-CSRF-Token':'owner-csrf'};
+const invitation={label:'House sitter',starts_at:grant.starts_at,ends_at:grant.ends_at,products:grant.products,instructions:'Private instructions'};
+response=await worker.fetch(new Request('https://spa.test/api/guests/invitations',{method:'POST',headers:ownerHeaders,body:JSON.stringify({sha:policySha,invitation})}),env);assert.equal(response.status,200,await response.clone().text());
+const issued=await response.json(),url=new URL(issued.invitation_url),credential=new URLSearchParams(url.hash.slice(1)).get('invite');
+assert.equal(url.pathname,'/guest');assert.equal(url.search,'');assert.equal(policy.grants.length,1);assert.equal(policy.grants[0].auth_type,'invite');assert.equal(issued.grant.invite_hash,undefined);assert.doesNotMatch(JSON.stringify(policy),new RegExp(credential.split('.')[1]));assert.equal(policy.grants[0].invite_hash,await guestInviteDigest(credential.split('.')[1]));
+const redeem=(value=credential,origin='https://spa.test')=>new Request('https://spa.test/api/guest/redeem',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',Cookie:'__Host-j365='+ownerCookie},body:JSON.stringify({invitation:value})});
+response=await worker.fetch(redeem(credential,'https://evil.test'),env);assert.equal(response.status,403);
+response=await worker.fetch(redeem(credential.slice(0,-1)+(credential.endsWith('A')?'B':'A')),env);assert.equal(response.status,403);
+response=await worker.fetch(redeem(),env);assert.equal(response.status,200,await response.clone().text());
+const setCookie=response.headers.get('Set-Cookie');assert.match(setCookie,/^__Host-j365-guest=/);assert.match(setCookie,/HttpOnly; Secure; SameSite=Lax/);assert.doesNotMatch(setCookie,/__Host-j365=/);
+const invitationCookie=setCookie.split(';')[0],inviteHeaders={Cookie:invitationCookie,Origin:'https://spa.test','Content-Type':'application/json'};
+response=await worker.fetch(new Request('https://spa.test/api/guest/me',{headers:inviteHeaders}),env);assert.equal(response.status,200);const inviteMe=await response.json();assert.equal(inviteMe.user,'House sitter');assert.equal(inviteMe.user_id,'invite:'+issued.grant.id);
+response=await worker.fetch(new Request('https://spa.test/api/me',{headers:{Cookie:'__Host-j365='+ownerCookie+'; '+invitationCookie}}),env);assert.equal((await response.json()).user,'jglisson8');
+for(const p of ['/api/config','/api/log','/api/events?month='+ts.slice(0,7),'/api/guests']){response=await worker.fetch(new Request('https://spa.test'+p,{headers:inviteHeaders}),env);assert.equal(response.status,401,p);}
+const guestDoseInput={...base,id:'invitation-dose-123456789',type:'chemical_addition',product_id:profile.id,amount:.25,unit:'cup'};
+const saveInviteDose=()=>new Request('https://spa.test/api/guest/entries',{method:'POST',headers:{...inviteHeaders,'X-CSRF-Token':inviteMe.csrf},body:JSON.stringify({event:guestDoseInput})});
+response=await worker.fetch(saveInviteDose(),env);assert.equal(response.status,200,await response.clone().text());const recorded=(await response.json()).event;assert.equal(recorded.amount,.25);assert.equal(recorded.unit,'cup');assert.equal(recorded.guest_actor.label,'House sitter');assert.equal(recorded.product_profile.id,profile.id);
+response=await worker.fetch(saveInviteDose(),env);assert.equal((await response.json()).replayed,true);
+// Owner monthly API sees exactly the canonical guest dose (no separate silo).
+response=await worker.fetch(new Request('https://spa.test/api/events?month='+ts.slice(0,7),{headers:{Cookie:'__Host-j365='+ownerCookie}}),env);assert.equal(response.status,200);assert.equal((await response.json()).document.events.filter(e=>e.id===guestDoseInput.id).length,1);
+response=await worker.fetch(new Request('https://spa.test/api/guest/context',{headers:inviteHeaders}),env);assert.equal(response.status,200);assert.equal((await response.json()).events.some(e=>e.id===guestDoseInput.id),true);
+response=await worker.fetch(new Request('https://spa.test/api/guests',{headers:ownerHeaders}),env);const editable=await response.json();assert.equal(editable.policy.grants[0].invite_hash,undefined);
+response=await worker.fetch(new Request('https://spa.test/api/guests',{method:'POST',headers:ownerHeaders,body:JSON.stringify({sha:editable.sha,policy:{...editable.policy,grants:editable.policy.grants.map(g=>({...g,revoked:true}))}})}),env);assert.equal(response.status,200,await response.clone().text());
+assert.equal(policy.grants[0].invite_hash,await guestInviteDigest(credential.split('.')[1]));
+response=await worker.fetch(new Request('https://spa.test/api/guest/me',{headers:inviteHeaders}),env);assert.equal(response.status,403);response=await worker.fetch(saveInviteDose(),env);assert.equal(response.status,403);response=await worker.fetch(redeem(),env);assert.equal(response.status,403);
+policy.grants[0].revoked=false;policy.grants[0].ends_at=new Date(now-1000).toISOString();response=await worker.fetch(redeem(),env);assert.equal(response.status,403);
+policy.grants[0].ends_at=grant.ends_at;policy.grants[0].starts_at=new Date(now+hours).toISOString();response=await worker.fetch(redeem(),env);assert.equal(response.status,403);
+policy.grants[0].starts_at=grant.starts_at;env.GUEST_ACCESS_ENABLED='false';response=await worker.fetch(redeem(),env);assert.equal(response.status,403);response=await worker.fetch(new Request('https://spa.test/api/guest/me',{headers:inviteHeaders}),env);assert.equal(response.status,403);
+response=await worker.fetch(new Request('https://spa.test/guest/logout'),env);assert.equal(response.status,302);assert.match(response.headers.get('Set-Cookie'),/__Host-j365-guest=;.*Max-Age=0/);assert.doesNotMatch(response.headers.get('Set-Cookie'),/__Host-j365=/);
+console.log('PASS: expiring hash-only invitations, separate guest cookies, owner session preservation, no-account redemption, dose sync, idempotency, owner-side revocation, access windows and kill switch');
 console.log('PASS: guest allowlist, expiry, role isolation, strict strip/addition validation, own-only corrections/removal, redaction, scoped JWT, CSRF, conflict retry, idempotency and immediate revocation');

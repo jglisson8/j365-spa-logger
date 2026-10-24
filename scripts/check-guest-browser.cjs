@@ -6,7 +6,7 @@ const {chromium}=require(process.env.J365_PLAYWRIGHT||'playwright'),root=path.jo
  const now=Date.now(),h=3600000,events=[{id:'fill',type:'water_change',full:true,gallons:395,starting_cya_ppm:30,starting_borates_ppm:40,new_fill_cycle_id:'fill',timestamp:new Date(now-7*24*h).toISOString()},...[24,12,1].map((v,i)=>({id:'test'+i,type:'chemistry',fill_cycle_id:'fill',timestamp:new Date(now-v*h).toISOString(),fc_ppm:5-i,ph:7.4+i*.1,ta_ppm:90}))];
  await page.addInitScript(()=>localStorage.setItem('j365_spa_events_v2','OWNER-SENTINEL'));
  await page.route('https://spa.test/**',async route=>{const u=new URL(route.request().url());calls.push(u.pathname);
-  if(u.pathname==='/api/me')return route.fulfill({json:{user:'synthetic-guest',user_id:17,role:'guest',csrf:'test'}});
+  if(u.pathname==='/api/guest/me')return route.fulfill({json:{user:'synthetic-guest',user_id:17,role:'guest',csrf:'test'}});
   if(u.pathname==='/api/guest/context')return route.fulfill({json:{user:'synthetic-guest',expires_at:new Date(now+86400000).toISOString(),products:[],instructions:'Use strips to check the water and log each soak.',config:{schema_version:2,spa:{model:'J-365',volume_gallons:395},current_fill_cycle_id:'fill'},events}});
   if(u.pathname.startsWith('/api/'))return route.fulfill({status:503,json:{error:'Synthetic unavailable'}});
   if(u.pathname.startsWith('/assets/'))return route.fulfill({path:path.join(root,u.pathname)});

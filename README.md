@@ -19,11 +19,11 @@ See [reliability audit and release notes](docs/reliability-6.50.md), [execution 
 
 ## Temporary guest access (beta)
 
-See [guest mode and activation checklist](docs/guest-mode-6.57.0.md). The guest
-UI is separate from owner entry and includes read-only Trends. Guest access is
-disabled until the Worker is deployed/configured and an owner saves a dated
-grant for a specific GitHub user. Publishing this static app does not deploy
-the Worker or authorize a guest.
+See [guest invitations](docs/guest-invitations-6.58.0.md). Guests use expiring
+private links, without GitHub accounts. The separate guest UI includes strip
+tests, soaks, approved actual doses, and read-only Trends. No access is granted
+until the owner creates an invitation. Publishing the static app alone does
+not deploy Worker v4 or authorize anyone.
 
 Build the standalone Worker with `node scripts/build-guest-worker.cjs`; the
 retained base is `worker/base-v3.8.js`. Guest server and UI regression tests are

@@ -13,8 +13,11 @@ function guestPolicy(value){
   if(value.schema_version!==1||!Array.isArray(value.grants)||value.grants.length>20)guestFail('Invalid guest access list');
   const ids=new Set();
   for(const g of value.grants){
-    guestKeys(g,['id','user_id','login','starts_at','ends_at','revoked','products','instructions']);
-    if(!/^[-a-zA-Z0-9_]{8,100}$/.test(g.id)||ids.has(g.id)||!Number.isSafeInteger(g.user_id)||g.user_id<=0||typeof g.login!=='string'||!/^[-a-zA-Z0-9]{1,39}$/.test(g.login))guestFail('Invalid guest identity');ids.add(g.id);
+    guestKeys(g,['id','user_id','login','auth_type','label','invite_hash','starts_at','ends_at','revoked','products','instructions']);
+    if(!/^[-a-zA-Z0-9_]{8,100}$/.test(g.id)||ids.has(g.id))guestFail('Invalid guest identity');ids.add(g.id);
+    if(g.auth_type==='invite'){
+      if(typeof g.label!=='string'||!g.label.trim()||g.label.length>100||!/^[A-Za-z0-9_-]{43}$/.test(g.invite_hash)||g.user_id!=null||g.login!=null)guestFail('Invalid invitation identity');
+    }else if(g.auth_type!=null||!Number.isSafeInteger(g.user_id)||g.user_id<=0||typeof g.login!=='string'||!/^[-a-zA-Z0-9]{1,39}$/.test(g.login))guestFail('Invalid guest identity');
     const start=guestEpoch(g.starts_at),end=guestEpoch(g.ends_at);if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>90*86400000||typeof g.revoked!=='boolean')guestFail('Choose a guest access window of at most 90 days');
     if(typeof g.instructions!=='string'||g.instructions.length>2000||!Array.isArray(g.products)||g.products.length>2)guestFail('Invalid guest instructions');
     const productIds=new Set();for(const p of g.products){
@@ -55,14 +58,44 @@ async function guestInstallationToken(env,ownerCheck=false){
   guestInstallationCache={key:cacheKey,token:result.token,until:Date.parse(result.expires_at)};return result.token;
 }
 async function guestGrant(identity,env){
-  const token=await guestInstallationToken(env),file=await readRepoJson(GUEST_ACCESS_FILE,token,true),policy=guestPolicy(file.value||{schema_version:1,grants:[]});
-  const now=Date.now(),grant=policy.grants.find(g=>g.user_id===identity.user_id&&g.id===identity.grant_id&&!g.revoked&&guestEpoch(g.starts_at)<=now&&now<guestEpoch(g.ends_at));
+  const invite=identity.auth_type==='invite';if(invite&&env.GUEST_ACCESS_ENABLED==='false')guestFail('Guest access is disabled',403);
+  const token=await guestInstallationToken(env,invite),file=await readRepoJson(GUEST_ACCESS_FILE,token,true),policy=guestPolicy(file.value||{schema_version:1,grants:[]});
+  const now=Date.now(),grant=policy.grants.find(g=>g.id===identity.grant_id&&(invite?g.auth_type==='invite'&&g.invite_hash===identity.invite_revision&&identity.user_id==='invite:'+g.id:g.auth_type!=='invite'&&g.user_id===identity.user_id)&&!g.revoked&&guestEpoch(g.starts_at)<=now&&now<guestEpoch(g.ends_at));
   if(!grant)guestFail('Guest access is inactive, expired or revoked',403);return {grant,token};
 }
 async function guestIdentity(req,env){
-  let s;try{s=await unseal(getCookie(req,'__Host-j365'),env);}catch{guestFail('Sign in again',401);}
-  if(s.role!=='guest'||!s.token||!Number.isSafeInteger(s.user_id)||!Number.isFinite(s.until)||s.until<=Date.now())guestFail('Sign in again',401);
-  return {...s,...await guestGrant(s,env)};
+  let s;try{s=await unseal(getCookie(req,'__Host-j365-guest')||getCookie(req,'__Host-j365'),env);}catch{guestFail('Open your guest invitation link',401);}
+  if(s.role!=='guest'||!(s.auth_type==='invite'?typeof s.user_id==='string'&&s.user_id==='invite:'+s.grant_id:!!s.token&&Number.isSafeInteger(s.user_id))||!Number.isFinite(s.until)||s.until<=Date.now())guestFail('Open your guest invitation link',401);
+  const access=await guestGrant(s,env);return {...s,...access,user:access.grant.label??s.user};
+}
+const guestCookie=(value,age)=>`__Host-j365-guest=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${age}`;
+async function guestInviteDigest(secret){return b64url(new Uint8Array(await crypto.subtle.digest('SHA-256',te.encode(secret))));}
+function guestSafeGrant(g){return g.auth_type==='invite'?Object.fromEntries(Object.entries(g).filter(([k])=>k!=='invite_hash')):g;}
+async function guestInvitationRoutes(req,env,url){
+  if(url.pathname==='/guest/logout'&&req.method==='GET')return redirect('/guest',guestCookie('',0));
+  if(url.pathname==='/api/guests/invitations'&&req.method==='POST'){
+    const owner=await requireSession(req,env);requireWriteAuth(req,url,owner);
+    const body=await parseJsonBody(req,30000);guestKeys(body,['sha','invitation']);guestKeys(body.invitation,['label','starts_at','ends_at','products','instructions']);
+    const file=await readRepoJson(GUEST_ACCESS_FILE,owner.token,true);if(body.sha!==file.sha)guestFail('Guest settings changed; reload before creating an invitation',409);
+    const policy=guestPolicy(file.value||{schema_version:1,grants:[]}),secret=random(32),grant={...body.invitation,id:crypto.randomUUID(),auth_type:'invite',invite_hash:await guestInviteDigest(secret),revoked:false};
+    guestPolicy({schema_version:1,grants:[...policy.grants,grant]});
+    const sha=await writeRepoJson(GUEST_ACCESS_FILE,owner.token,{schema_version:1,grants:[...policy.grants,grant]},file.sha,'Create expiring spa guest invitation');
+    // Only the hash is stored on GitHub. The raw link is returned once, no-store.
+    return json({ok:true,sha,grant:guestSafeGrant(grant),invitation_url:url.origin+'/guest#invite='+grant.id+'.'+secret});
+  }
+  if(url.pathname==='/api/guest/redeem'&&req.method==='POST'){
+    if(req.headers.get('Origin')!==url.origin)guestFail('Invalid origin',403);
+    if(!req.headers.get('Content-Type')?.toLowerCase().startsWith('application/json'))guestFail('Content-Type must be application/json',415);
+    if(env.GUEST_ACCESS_ENABLED==='false')guestFail('Guest access is disabled',403);
+    const body=await parseJsonBody(req,1000);guestKeys(body,['invitation']);
+    const match=typeof body.invitation==='string'&&body.invitation.match(/^([-a-zA-Z0-9_]{8,100})\.([A-Za-z0-9_-]{43})$/);if(!match)guestFail('Invitation is invalid or inactive',403);
+    const token=await guestInstallationToken(env,true),file=await readRepoJson(GUEST_ACCESS_FILE,token,true),policy=guestPolicy(file.value||{schema_version:1,grants:[]}),hash=await guestInviteDigest(match[2]),now=Date.now();
+    const grant=policy.grants.find(g=>g.auth_type==='invite'&&g.id===match[1]&&g.invite_hash===hash&&!g.revoked&&guestEpoch(g.starts_at)<=now&&now<guestEpoch(g.ends_at));
+    if(!grant)guestFail('Invitation is invalid, not yet active, expired or revoked',403);
+    const until=guestEpoch(grant.ends_at),cookie=await seal({role:'guest',auth_type:'invite',user:grant.label,user_id:'invite:'+grant.id,grant_id:grant.id,invite_revision:grant.invite_hash,until,csrf:random(24)},env);
+    return json({ok:true,user:grant.label,expires_at:grant.ends_at},200,{'Set-Cookie':guestCookie(cookie,Math.max(1,Math.floor((until-now)/1000)))});
+  }
+  return null;
 }
 async function guestLogin(me,env){
   const token=await guestInstallationToken(env),file=await readRepoJson(GUEST_ACCESS_FILE,token,true),policy=guestPolicy(file.value||{schema_version:1,grants:[]}),now=Date.now();
@@ -78,7 +111,7 @@ function guestPublicEvent(e){
   const v=Object.fromEntries(Object.entries(guestPick(e,fields)).filter(([,value])=>typeof value!=='object'));if(e.product_profile)v.product_profile=guestSafeProfile(e.product_profile);
   if(e.ph_bounds)v.ph_bounds=guestPick(e.ph_bounds,['operator','value','minimum','maximum']);
   if(e.exposure)v.exposure=guestPick(e.exposure,['kind','duration_minutes','ended_at','sunlight','air_on']);
-  if(e.guest_actor)v.guest_actor=guestPick(e.guest_actor,['user_id','login','grant_id']);
+  if(e.guest_actor)v.guest_actor=guestPick(e.guest_actor,['user_id','login','label','auth_type','grant_id']);
   if(e.measurement_sources)v.measurement_sources=guestPick(e.measurement_sources,['fc_ppm','ph','ta_ppm','cc_ppm','ch_ppm','cya_ppm','borates_ppm']);
   if(e.strip_observations)v.strip_observations={...guestPick(e.strip_observations,['schema_version','profile_id','product']),readings:Object.fromEntries(Object.entries(guestPick(e.strip_observations.readings||{},Object.keys(GUEST_BLOCKS))).map(([k,r])=>[k,guestPick(r,['choice','minimum','maximum','working','censored','comparison_count','correction_applied'])]))};
   if(e.weather_context)v.weather_context={...guestPick(e.weather_context,['source','data_kind','retrieved_at','issued_at']),location:guestPick(e.weather_context.location||{},['latitude','longitude','site_elevation_ft','grid_elevation_ft','time_zone']),hours:(e.weather_context.hours||[]).map(h=>guestPick(h,['start','end','temperature_f','humidity_percent','wind_m_s','retrieved_at','issued_at','data_kind']))};
@@ -114,7 +147,7 @@ function guestConstruct(input,identity,events,config){
   const local=new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(instant).replace(' ','T');
   if(input.timestamp!==local)guestFail('Event time must match the Mountain-time instant');
   const fill=events.filter(e=>e.type==='water_change'&&e.full&&String(e.timestamp)<=local).sort((a,b)=>String(b.timestamp).localeCompare(String(a.timestamp)))[0];
-  const event={id:input.id,schema_version:2,app_version:'guest-1',type:input.type,timestamp:local,timestamp_instant:input.timestamp_instant,time_zone:'America/Denver',created_at:new Date().toISOString(),fill_cycle_id:fill?.new_fill_cycle_id??config.current_fill_cycle_id??null,guest_actor:{user_id:identity.user_id,login:identity.user,grant_id:g.id},guest_submission:guestStable(input)};
+  const event={id:input.id,schema_version:2,app_version:'guest-2',type:input.type,timestamp:local,timestamp_instant:input.timestamp_instant,time_zone:'America/Denver',created_at:new Date().toISOString(),fill_cycle_id:fill?.new_fill_cycle_id??config.current_fill_cycle_id??null,guest_actor:{user_id:identity.user_id,...(g.auth_type==='invite'?{label:g.label,auth_type:'invite'}:{login:identity.user}),grant_id:g.id},guest_submission:guestStable(input)};
   if(input.supersedes_event_id){const prior=events.find(e=>e.id===input.supersedes_event_id);if(!prior||prior.guest_actor?.user_id!==identity.user_id||prior.guest_actor?.grant_id!==g.id||(input.type!=='remove'&&prior.type!==input.type)||prior.timestamp.slice(0,7)!==local.slice(0,7))guestFail('Only your own active entries from this access window can be corrected (within the same month)',403);event.supersedes_event_id=prior.id;event.correction_reason='Guest correction';if(input.type==='remove'){guestKeys(input,['id','type','timestamp','timestamp_instant','supersedes_event_id']);return {...event,type:'note',record_removal:true,removed_record:prior,notes:'Guest removed own accidental entry'};}}
   const subtypeFields={chemistry:['readings'],soak:['bathers','duration_minutes','showered','jet_air_use'],chemical_addition:['product_id','amount','unit']}[input.type];
   if(!subtypeFields)guestFail('Guests can log strip tests, soaks and approved additions only');
@@ -137,22 +170,30 @@ function guestConstruct(input,identity,events,config){
   validateEvent(event,local.slice(0,7));return event;
 }
 async function guestRoutes(req,env,url){
+  const invitationResponse=await guestInvitationRoutes(req,env,url);if(invitationResponse)return invitationResponse;
   if(url.pathname==='/api/guests/check'&&req.method==='GET'){
-    await requireSession(req,env);const token=await guestInstallationToken(env,true);await readRepoJson(CONFIG_FILE,token);return json({ok:true,repository:REPO,backend_enabled:env.GUEST_ACCESS_ENABLED==='true'});
+    await requireSession(req,env);const token=await guestInstallationToken(env,true);await readRepoJson(CONFIG_FILE,token);return json({ok:true,repository:REPO,backend_enabled:env.GUEST_ACCESS_ENABLED!=='false'});
   }
   if(url.pathname==='/api/guests'){
     const owner=await requireSession(req,env);
-    if(req.method==='GET'){const file=await readRepoJson(GUEST_ACCESS_FILE,owner.token,true);return json({sha:file.sha,policy:guestPolicy(file.value||{schema_version:1,grants:[]}),backend_enabled:env.GUEST_ACCESS_ENABLED==='true',backend_configured:!!(env.GITHUB_APP_ID&&env.GITHUB_INSTALLATION_ID&&env.GITHUB_PRIVATE_KEY)});}
+    if(req.method==='GET'){const file=await readRepoJson(GUEST_ACCESS_FILE,owner.token,true);return json({sha:file.sha,policy:{schema_version:1,grants:guestPolicy(file.value||{schema_version:1,grants:[]}).grants.map(guestSafeGrant)},backend_enabled:env.GUEST_ACCESS_ENABLED!=='false',backend_configured:!!(env.GITHUB_APP_ID&&env.GITHUB_INSTALLATION_ID&&env.GITHUB_PRIVATE_KEY)});}
     if(req.method==='POST'){
-      requireWriteAuth(req,url,owner);const body=await parseJsonBody(req,50000);guestKeys(body,['sha','policy']);if(body.sha!==null&&typeof body.sha!=='string')guestFail('Reload guest settings');const policy=guestPolicy(body.policy);
+      requireWriteAuth(req,url,owner);const body=await parseJsonBody(req,50000);guestKeys(body,['sha','policy']);if(body.sha!==null&&typeof body.sha!=='string')guestFail('Reload guest settings');
+      const saved=await readRepoJson(GUEST_ACCESS_FILE,owner.token,true);if(saved.sha!==body.sha)guestFail('Guest settings changed; reload before saving',409);
+      const previous=guestPolicy(saved.value||{schema_version:1,grants:[]});if(!isObject(body.policy)||!Array.isArray(body.policy.grants))guestFail('Invalid guest settings');
+      const policy=guestPolicy({...body.policy,grants:body.policy.grants.map(g=>{
+        if(g.auth_type!=='invite')return g;const prior=previous.grants.find(p=>p.id===g.id&&p.auth_type==='invite');if(!prior)guestFail('Create new invitations using the invitation action');
+        if(g.invite_hash!=null)guestFail('Invitation hashes cannot be supplied by clients');return {...g,invite_hash:prior.invite_hash};
+      })});
       // Pin immutable numeric identity and check supplied login. Never authorize by mutable login alone.
-      for(const g of policy.grants){const user=await github('/users/'+encodeURIComponent(g.login),owner.token);if(user.id!==g.user_id||user.type!=='User')guestFail('Guest GitHub identity did not match');}
+      for(const g of policy.grants){if(g.auth_type==='invite')continue;const user=await github('/users/'+encodeURIComponent(g.login),owner.token);if(user.id!==g.user_id||user.type!=='User')guestFail('Guest GitHub identity did not match');}
       const sha=await writeRepoJson(GUEST_ACCESS_FILE,owner.token,policy,body.sha,'Update temporary spa guest access');return json({ok:true,sha});
     }return json({error:'Method not allowed'},405);
   }
   if(url.pathname==='/api/guests/lookup'&&req.method==='GET'){const owner=await requireSession(req,env),login=url.searchParams.get('login');if(!/^[-a-zA-Z0-9]{1,39}$/.test(login||''))guestFail('Enter a GitHub username');const user=await github('/users/'+encodeURIComponent(login),owner.token);if(user.type!=='User')guestFail('Use a personal GitHub account');return json({login:user.login,user_id:user.id});}
   if(!url.pathname.startsWith('/api/guest/'))return null;
   const current=await guestIdentity(req,env);
+  if(url.pathname==='/api/guest/me'&&req.method==='GET')return json({user:current.user,user_id:current.user_id,role:'guest',csrf:current.csrf,expires_at:current.grant.ends_at,api_version:4});
   if(url.pathname==='/api/guest/context'&&req.method==='GET'){
     const file=await readRepoJson(CONFIG_FILE,current.token),config=file.value,events=await guestTimeline(current.token);
     return json({user:current.user,expires_at:current.grant.ends_at,instructions:current.grant.instructions,products:current.grant.products.map(p=>({...p,profile:guestSafeProfile(p.profile)})),config:{...guestPick(config,['schema_version','targets','current_fill_cycle_id']),spa:guestPick(config.spa||{},['model','volume_gallons']),chemicals:guestPick(config.chemicals||{},['bleach_strength_percent'])},events:events.map(guestPublicEvent)});
