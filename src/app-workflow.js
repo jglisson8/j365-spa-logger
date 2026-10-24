@@ -1,5 +1,23 @@
 // Interaction layer only: no chemistry/model/storage-schema changes.
 let appWorkflowState=null;
+function setupSoakAeration(){
+  const oldLabel=label;label=function(e){return isExposure(e)&&e.exposure.kind==='jets'?'Jets / aeration — '+e.exposure.duration_minutes+' min · air controls '+(e.exposure.air_on?'open':'closed'):oldLabel(e);};
+  const form=$('soakForm'),bathers=$('bathers'),shower=$('showered'),jets=$('jetAirUse'),button=form.querySelector('button[type="submit"]');
+  const hint=document.createElement('p');hint.id='aerationHint';hint.className='help';hint.hidden=true;hint.textContent='Jets without bathers. Date/time is when aeration ended (defaults to now); the start is calculated from the duration. Saved as a jets-only exposure for pH trends, not a soak.';bathers.closest('.two').after(hint);
+  let zero=false,previousShower=shower.checked,previousJets=jets.value;
+  const mode=()=>{const next=bathers.value==='0';if(next&&!zero){previousShower=shower.checked;previousJets=jets.value;}shower.disabled=next;shower.closest('.inline').style.opacity=next?'.45':'';if(next)shower.checked=false;else if(zero){shower.checked=previousShower;jets.value=previousJets;}
+    for(const option of jets.options)option.disabled=next&&!['air_on','water_only'].includes(option.value);
+    if(next&&!['air_on','water_only'].includes(jets.value))jets.value='air_on';const time=form.querySelector('.time');time.previousElementSibling.textContent=next?'Aeration ended at':'Time';if(next&&!zero){const details=time.closest('details');if(details)details.open=true;}hint.hidden=!next;button.textContent=next?'Save aeration':'Save soak';zero=next;conditionUI();};
+  bathers.addEventListener('change',mode);mode();
+  const submit=form.onsubmit;form.onsubmit=function(e){if(bathers.value!=='0')return submit.call(this,e);e.preventDefault();const duration=num($('minutes').value),ended=timestamp(this),end=entryTime(ended),start=end-duration*60000;
+    if(!Number.isInteger(duration)||duration<1||duration>720||!['air_on','water_only'].includes(jets.value)||!Number.isFinite(start)||end>Date.now()+60000){alert('Enter a completed aeration session: end time, 1–720 minutes, and air controls open or closed.');return;}
+    const ts=SpaTime.input(start);spaEntryChoices.set(ts,start);save([{...base('maintenance',ts),activity:'custom',custom_activity:'Standalone jets',temperature_f:Number($('temperature').value),exposure:{kind:'jets',duration_minutes:duration,ended_at:ended,sunlight:false,air_on:jets.value==='air_on'},notes:text($('soakNotes').value)}],'Aeration saved');$('soakNotes').value='';fillNow();
+  };
+  // Existing exposure records keep the same wire format; expose their nested
+  // duration/air fields to the normal reversible correction flow.
+  $('history').addEventListener('click',e=>{if(!e.target.closest('[data-edit]')||!isExposure(editingRecord)||editingRecord.exposure.kind!=='jets')return;$('editFields').insertAdjacentHTML('beforeend','<label for="editAerationMinutes">Aeration minutes</label><input id="editAerationMinutes" type="number" min="1" max="10080" step="1" required value="'+editingRecord.exposure.duration_minutes+'"><label class="inline"><input id="editAerationAir" type="checkbox"'+(editingRecord.exposure.air_on?' checked':'')+'>Air controls open</label>');});
+  const correct=$('editRecordForm').onsubmit;$('editRecordForm').onsubmit=function(e){if(!isExposure(editingRecord)||editingRecord.exposure.kind!=='jets'||!$('editAerationMinutes'))return correct.call(this,e);const duration=num($('editAerationMinutes').value),ts=$('edit-timestamp').value,start=parseSpaTime(ts);if(!Number.isInteger(duration)||duration<1||duration>10080||!Number.isFinite(start)||start+duration*60000>Date.now()+60000){e.preventDefault();alert('Enter a completed aeration session and a valid duration.');return;}const original=editingRecord;editingRecord={...original,exposure:{...original.exposure,duration_minutes:duration,air_on:$('editAerationAir').checked,ended_at:SpaTime.input(start+duration*60000)}};try{return correct.call(this,e);}finally{editingRecord=original;}};
+}
 function appHasUnsavedWork(){
   if(!appWorkflowState)return false;
   const s=appWorkflowState;
@@ -11,6 +29,7 @@ function appHasUnsavedWork(){
 }
 function setupAppWorkflow(){
   if(typeof window==='undefined'||!document.querySelector)return;
+  setupSoakAeration();
   const prefKey='j365_app_choices_v1';let prefs;
   try{prefs=JSON.parse(localStorage.getItem(prefKey)||'{}');if(!prefs||typeof prefs!=='object'||Array.isArray(prefs))prefs={};}catch{prefs={};}
   const persist=()=>{try{localStorage.setItem(prefKey,JSON.stringify(prefs));}catch{ /* optional preferences must never stop entry */ }};
@@ -65,7 +84,7 @@ function setupAppWorkflow(){
   const notice=document.createElement('div');notice.id='appSaveNotice';notice.setAttribute('role','status');notice.hidden=true;notice.innerHTML='<span></span> <button type="button" class="secondary" id="undoLastSave">Undo</button>';document.body.append(notice);
   const clearUndo=()=>{undoBatch=null;notice.hidden=true;clearTimeout(undoTimer);};
   save=function(events,message,autoSync=true){
-    const before=new Set(read().map(e=>e.id)),form=message==='Chemistry saved'?$('chemistryForm'):message==='Soak saved'?$('soakForm'):['Maintenance saved','Exposure saved','New fill cycle saved'].includes(message)?$('maintenanceForm'):null;
+    const before=new Set(read().map(e=>e.id)),form=message==='Chemistry saved'?$('chemistryForm'):['Soak saved','Aeration saved'].includes(message)?$('soakForm'):['Maintenance saved','Exposure saved','New fill cycle saved'].includes(message)?$('maintenanceForm'):null;
     const activity=$('maintenanceActivity').value;
     const result=originalSave(events,message,autoSync),saved=read(),fresh=events.filter(e=>!before.has(e.id)&&saved.some(r=>r.id===e.id));
     if(form&&fresh.length){

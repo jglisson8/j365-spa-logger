@@ -31,7 +31,7 @@
   <section class="panel tab" id="tab-soak" hidden>
     <form id="soakForm">
       <div class="two"><div><label>Date</label><input class="date" type="date" required></div><div><label>Time</label><input class="time" type="time" required></div></div>
-      <div class="two"><div><label>Bathers</label><select id="bathers"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div><div><label>Minutes</label><select id="minutes"><option>10</option><option selected>15</option><option>20</option><option>25</option><option>30</option><option>45</option><option>60</option></select></div></div>
+      <div class="two"><div><label for="bathers">Bathers</label><select id="bathers"><option value="0">0 — Aeration only</option><option selected>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div><div><label for="minutes">Minutes</label><input id="minutes" type="number" min="1" max="720" step="1" value="15" required inputmode="numeric"></div></div>
       <div class="inline"><input id="showered" type="checkbox" checked><label for="showered">Showered beforehand</label></div>
       <label>Temperature °F</label><select id="temperature"><option>100</option><option>101</option><option>102</option><option>103</option><option>104</option><option>105</option><option selected>106</option></select>
       <label>Notes</label><textarea id="soakNotes" placeholder="Optional"></textarea>
@@ -133,7 +133,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.54.4',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.55.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -961,8 +961,8 @@ function renderCharts(events,options={}){
  const bounds=chartBounds(key),preferred=phPreferred(),dataValues=[...plotted.filter(p=>!p.e.chart_context_only).map(p=>p.v),...chartModelValues(projection,start,end),...history.bridges.flatMap(b=>b.points.map(p=>p.v)),...history.doseEstimates.map(p=>p.v)].filter(Number.isFinite),scale=chartUiScale(key,dataValues,[bounds.lower,bounds.upper,...(key==='ph'?[preferred.lower,preferred.upper]:[]),...(key==='fc_ppm'?[num($('fcTarget').value)||5]:[])]),{bottom,top}=scale,geometry=chartUiGeometry(options);
  const x=e=>50+470*(chartTime(e)-start)/Math.max(1,end-start),y=v=>chartUiValueY(key,v,scale,geometry),at=t=>x({timestamp:new Date(t).toISOString()}),inspectionId=(options.target||'trendCharts')+'-'+key;chartInspection.set(inspectionId,{key,plotted,projection,start,end,events,history,geometry,scale});x.start=start;
  const title=e=>e.timestamp+' · '+label(e)+(modelTime(e)==null?' · time unknown':''),detail=(e,prefix='')=>' tabindex="0" role="button" data-trend-detail="'+esc(prefix+title(e))+'" aria-label="'+esc(prefix+title(e))+'"';
- const markers=events.filter(e=>e.type==='chemical_addition'||$('trendActivity').checked&&e.type==='soak'||e.type==='water_change'&&e.full).filter(e=>chartTime(e)>=start&&chartTime(e)<=end),segments=history.bridges.map(b=>'<polyline data-chart-trend="calculated-between"'+(b.interpolated?' data-history-interpolation="true"':'')+(b.conditional?' data-history-scenario="true" stroke-dasharray="3 3"':'')+' points="'+b.points.map(p=>at(p.t)+','+y(p.v)).join(' ')+'" fill="none" stroke="#65e5bc" stroke-width="2"><title>'+esc(b.description||'Calculated between points; endpoint-constrained reconstruction, not sampled or a forward forecast.')+'</title></polyline>').join('');
- const markerSvg=markers.map(e=>e.type==='water_change'?'<line'+detail(e)+' data-trend-marker="fill" x1="'+x(e)+'" x2="'+x(e)+'" y1="'+geometry.top+'" y2="'+geometry.bottom+'" stroke="#77c9ff" stroke-dasharray="4 4" opacity=".65"><title>'+esc(title(e))+'</title></line>':'<g'+detail(e,e.type==='chemical_addition'?'Dose added · ':'Soak · ')+' data-trend-marker="'+e.type+'" transform="translate('+x(e)+','+(geometry.bottom+12*geometry.scale)+')">'+(e.type==='soak'?'<line x1="0" x2="0" y1="'+(geometry.top-geometry.bottom-12*geometry.scale)+'" y2="'+(-12*geometry.scale)+'" stroke="#bb8cff" stroke-dasharray="2 4" opacity=".45"/>':'')+'<circle r="6" fill="'+(e.type==='soak'?'#bb8cff':'#ffbb66')+'"/><text text-anchor="middle" y="3" font-size="9" fill="#101c23">'+(e.type==='soak'?'S':'+')+'</text><title>'+esc(title(e))+'</title></g>').join('');
+ const markers=events.filter(e=>e.type==='chemical_addition'||$('trendActivity').checked&&(e.type==='soak'||isExposure(e)&&e.exposure.kind==='jets')||e.type==='water_change'&&e.full).filter(e=>chartTime(e)>=start&&chartTime(e)<=end),segments=history.bridges.map(b=>'<polyline data-chart-trend="calculated-between"'+(b.interpolated?' data-history-interpolation="true"':'')+(b.conditional?' data-history-scenario="true" stroke-dasharray="3 3"':'')+' points="'+b.points.map(p=>at(p.t)+','+y(p.v)).join(' ')+'" fill="none" stroke="#65e5bc" stroke-width="2"><title>'+esc(b.description||'Calculated between points; endpoint-constrained reconstruction, not sampled or a forward forecast.')+'</title></polyline>').join('');
+ const markerSvg=markers.map(e=>{if(e.type==='water_change')return '<line'+detail(e)+' data-trend-marker="fill" x1="'+x(e)+'" x2="'+x(e)+'" y1="'+geometry.top+'" y2="'+geometry.bottom+'" stroke="#77c9ff" stroke-dasharray="4 4" opacity=".65"><title>'+esc(title(e))+'</title></line>';const jets=isExposure(e),activity=jets||e.type==='soak',kind=jets?'jets':e.type,color=jets?'#77c9ff':activity?'#bb8cff':'#ffbb66',prefix=jets?'Jets / aeration · ':activity?'Soak · ':'Dose added · ';return '<g'+detail(e,prefix)+' data-trend-marker="'+kind+'" transform="translate('+x(e)+','+(geometry.bottom+12*geometry.scale)+')">'+(activity?'<line x1="0" x2="0" y1="'+(geometry.top-geometry.bottom-12*geometry.scale)+'" y2="'+(-12*geometry.scale)+'" stroke="'+color+'" stroke-dasharray="2 4" opacity=".45"/>':'')+'<circle r="6" fill="'+color+'"/><text text-anchor="middle" y="3" font-size="9" fill="#101c23">'+(jets?'J':activity?'S':'+')+'</text><title>'+esc(prefix+title(e))+'</title></g>';}).join('');
  const axisSvg=chartUiTimeAxis(start,end,geometry);
  const pointSvg=plotted.filter(p=>!p.e.chart_context_only).map(p=>{const prefix=p.postDose?'Post-dose measured · ':'Sample · ',tip='<title>'+esc(prefix+title(p.e))+'</title>',eight=key==='ph'&&p.bounded&&(p.e.ph_bounds.value>=8||p.e.ph_bounds.minimum>=8);if(eight)return '<path'+detail(p.e,'8+ · ')+' data-sample-kind="8plus" d="M '+x(p.e)+' '+(y(p.v)-6)+' l -6 10 h 12 z" fill="#ffcc80">'+tip+'</path>';if(p.postDose)return '<path'+detail(p.e,prefix)+' data-sample-kind="post-dose-measured" d="M '+x(p.e)+' '+(y(p.v)-6)+' l 6 6 l -6 6 l -6 -6 z" fill="#77c9ff">'+tip+'</path>';return '<circle'+detail(p.e,prefix)+' data-sample-kind="sample" cx="'+x(p.e)+'" cy="'+y(p.v)+'" r="5" fill="#65e5bc" stroke="#65e5bc" stroke-width="2">'+tip+'</circle>'}).join('');
  const estimateSvg=history.doseEstimates.map(p=>'<path'+detail(p.dose,'Post-dose '+(p.scenario?'conditional scenario ≈':'≈')+p.v.toFixed(2)+(key==='ph'?'':' ppm')+' · ')+' data-post-dose-estimate="'+esc(p.dose.id)+'" d="M '+at(p.t)+' '+(y(p.v)-5)+' l 5 5 l -5 5 l -5 -5 z" fill="#101c23" stroke="#ffbb66" stroke-width="2"><title>Post-dose '+(p.scenario?'conditional scenario ≈':'≈')+p.v.toFixed(2)+'; not measured</title></path>').join('');
@@ -1457,7 +1457,8 @@ function decorateAppCharts(targetId) {
     for(const point of svg.querySelectorAll('circle[data-sample-kind="sample"]'))point.setAttribute('r',4*(meta.geometry?.scale||1));
     svg.setAttribute('aria-label',svg.getAttribute('aria-label')+'; drag to inspect; expand for zoom');
     if(meta.plotted.every(p=>p.e.chart_context_only)&&!card.querySelector('.chart-window-context')){const note=document.createElement('span');note.className='chart-window-context';note.style.display='block';note.textContent=(Number.isFinite(meta.projection?.current)?'Forecast anchored to ':'Last sample before this window: ')+SpaTime.format(modelTime(meta.plotted[0].e),{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});card.querySelector('.chart-targets')?.append(note);}
-    const key=card.querySelector('.chart-key');
+    const key=card.querySelector('.chart-key');key?.querySelector('[data-jets-key]')?.remove();
+    if(key&&svg.querySelector('[data-trend-marker="jets"]')){const item=document.createElement('span');item.className='key-item';item.dataset.jetsKey='';item.innerHTML='<span class="key-swatch" aria-hidden="true"><i class="key-activity" style="background:#77c9ff">J</i></span>Jets / aeration';key.querySelector('.key-items')?.append(item);}
     if(key){for(const item of key.querySelectorAll('.key-item')){
       const label=item.textContent;
       const present=label==='Sample'?meta.plotted.some(p=>!p.postDose):label==='8+'?meta.plotted.some(p=>p.bounded):label==='Calculated between points'?!!meta.history.bridges.length:label==='Forecast ≈'?!!svg.querySelector('[data-chart-trend="future"],[data-chart-trend="balance"],[data-chart-trend="extrapolated"]'):label==='Post-dose ≈'?!!meta.history.doseEstimates.length:label==='Post-dose measured'?meta.plotted.some(p=>p.postDose):label==='Dose added'?!!svg.querySelector('[data-trend-marker="chemical_addition"]'):label==='Soak'?!!svg.querySelector('[data-trend-marker="soak"]'):label==='Refill'?!!svg.querySelector('[data-trend-marker="fill"]'):true;
@@ -1543,6 +1544,24 @@ body.app-ui{padding-bottom:calc(92px + env(safe-area-inset-bottom))}.app-ui .bra
 }
 // Interaction layer only: no chemistry/model/storage-schema changes.
 let appWorkflowState=null;
+function setupSoakAeration(){
+  const oldLabel=label;label=function(e){return isExposure(e)&&e.exposure.kind==='jets'?'Jets / aeration — '+e.exposure.duration_minutes+' min · air controls '+(e.exposure.air_on?'open':'closed'):oldLabel(e);};
+  const form=$('soakForm'),bathers=$('bathers'),shower=$('showered'),jets=$('jetAirUse'),button=form.querySelector('button[type="submit"]');
+  const hint=document.createElement('p');hint.id='aerationHint';hint.className='help';hint.hidden=true;hint.textContent='Jets without bathers. Date/time is when aeration ended (defaults to now); the start is calculated from the duration. Saved as a jets-only exposure for pH trends, not a soak.';bathers.closest('.two').after(hint);
+  let zero=false,previousShower=shower.checked,previousJets=jets.value;
+  const mode=()=>{const next=bathers.value==='0';if(next&&!zero){previousShower=shower.checked;previousJets=jets.value;}shower.disabled=next;shower.closest('.inline').style.opacity=next?'.45':'';if(next)shower.checked=false;else if(zero){shower.checked=previousShower;jets.value=previousJets;}
+    for(const option of jets.options)option.disabled=next&&!['air_on','water_only'].includes(option.value);
+    if(next&&!['air_on','water_only'].includes(jets.value))jets.value='air_on';const time=form.querySelector('.time');time.previousElementSibling.textContent=next?'Aeration ended at':'Time';if(next&&!zero){const details=time.closest('details');if(details)details.open=true;}hint.hidden=!next;button.textContent=next?'Save aeration':'Save soak';zero=next;conditionUI();};
+  bathers.addEventListener('change',mode);mode();
+  const submit=form.onsubmit;form.onsubmit=function(e){if(bathers.value!=='0')return submit.call(this,e);e.preventDefault();const duration=num($('minutes').value),ended=timestamp(this),end=entryTime(ended),start=end-duration*60000;
+    if(!Number.isInteger(duration)||duration<1||duration>720||!['air_on','water_only'].includes(jets.value)||!Number.isFinite(start)||end>Date.now()+60000){alert('Enter a completed aeration session: end time, 1–720 minutes, and air controls open or closed.');return;}
+    const ts=SpaTime.input(start);spaEntryChoices.set(ts,start);save([{...base('maintenance',ts),activity:'custom',custom_activity:'Standalone jets',temperature_f:Number($('temperature').value),exposure:{kind:'jets',duration_minutes:duration,ended_at:ended,sunlight:false,air_on:jets.value==='air_on'},notes:text($('soakNotes').value)}],'Aeration saved');$('soakNotes').value='';fillNow();
+  };
+  // Existing exposure records keep the same wire format; expose their nested
+  // duration/air fields to the normal reversible correction flow.
+  $('history').addEventListener('click',e=>{if(!e.target.closest('[data-edit]')||!isExposure(editingRecord)||editingRecord.exposure.kind!=='jets')return;$('editFields').insertAdjacentHTML('beforeend','<label for="editAerationMinutes">Aeration minutes</label><input id="editAerationMinutes" type="number" min="1" max="10080" step="1" required value="'+editingRecord.exposure.duration_minutes+'"><label class="inline"><input id="editAerationAir" type="checkbox"'+(editingRecord.exposure.air_on?' checked':'')+'>Air controls open</label>');});
+  const correct=$('editRecordForm').onsubmit;$('editRecordForm').onsubmit=function(e){if(!isExposure(editingRecord)||editingRecord.exposure.kind!=='jets'||!$('editAerationMinutes'))return correct.call(this,e);const duration=num($('editAerationMinutes').value),ts=$('edit-timestamp').value,start=parseSpaTime(ts);if(!Number.isInteger(duration)||duration<1||duration>10080||!Number.isFinite(start)||start+duration*60000>Date.now()+60000){e.preventDefault();alert('Enter a completed aeration session and a valid duration.');return;}const original=editingRecord;editingRecord={...original,exposure:{...original.exposure,duration_minutes:duration,air_on:$('editAerationAir').checked,ended_at:SpaTime.input(start+duration*60000)}};try{return correct.call(this,e);}finally{editingRecord=original;}};
+}
 function appHasUnsavedWork(){
   if(!appWorkflowState)return false;
   const s=appWorkflowState;
@@ -1554,6 +1573,7 @@ function appHasUnsavedWork(){
 }
 function setupAppWorkflow(){
   if(typeof window==='undefined'||!document.querySelector)return;
+  setupSoakAeration();
   const prefKey='j365_app_choices_v1';let prefs;
   try{prefs=JSON.parse(localStorage.getItem(prefKey)||'{}');if(!prefs||typeof prefs!=='object'||Array.isArray(prefs))prefs={};}catch{prefs={};}
   const persist=()=>{try{localStorage.setItem(prefKey,JSON.stringify(prefs));}catch{ /* optional preferences must never stop entry */ }};
@@ -1608,7 +1628,7 @@ function setupAppWorkflow(){
   const notice=document.createElement('div');notice.id='appSaveNotice';notice.setAttribute('role','status');notice.hidden=true;notice.innerHTML='<span></span> <button type="button" class="secondary" id="undoLastSave">Undo</button>';document.body.append(notice);
   const clearUndo=()=>{undoBatch=null;notice.hidden=true;clearTimeout(undoTimer);};
   save=function(events,message,autoSync=true){
-    const before=new Set(read().map(e=>e.id)),form=message==='Chemistry saved'?$('chemistryForm'):message==='Soak saved'?$('soakForm'):['Maintenance saved','Exposure saved','New fill cycle saved'].includes(message)?$('maintenanceForm'):null;
+    const before=new Set(read().map(e=>e.id)),form=message==='Chemistry saved'?$('chemistryForm'):['Soak saved','Aeration saved'].includes(message)?$('soakForm'):['Maintenance saved','Exposure saved','New fill cycle saved'].includes(message)?$('maintenanceForm'):null;
     const activity=$('maintenanceActivity').value;
     const result=originalSave(events,message,autoSync),saved=read(),fresh=events.filter(e=>!before.has(e.id)&&saved.some(r=>r.id===e.id));
     if(form&&fresh.length){
