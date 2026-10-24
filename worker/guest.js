@@ -26,9 +26,16 @@ function guestPolicy(value){
   }return value;
 }
 function guestPkcs8(pem){
-  const der=fromB64url(pem.replace(/-----[^-]+-----/g,'').replace(/\s/g,'').replace(/\+/g,'-').replace(/\//g,'_'));
-  if(pem.includes('BEGIN PRIVATE KEY'))return der;
-  if(!pem.includes('BEGIN RSA PRIVATE KEY'))guestFail('Use a PEM RSA GitHub App private key',503);
+  if(typeof pem!=='string')guestFail('GITHUB_PRIVATE_KEY must contain the GitHub App RSA PEM key',503);
+  pem=pem.trim();
+  if(pem.startsWith('"')){try{pem=JSON.parse(pem);}catch{guestFail('GITHUB_PRIVATE_KEY has invalid quoted PEM text',503);}if(typeof pem!=='string')guestFail('GITHUB_PRIVATE_KEY must be PEM text, not a JSON object',503);}
+  pem=pem.replace(/\\r\\n|\\n|\\r/g,'\n').trim();
+  // Accept an explicitly base64-encoded PEM, but not arbitrary unlabelled DER.
+  if(!pem.startsWith('-----BEGIN ')&&/^[A-Za-z0-9+/=\s]+$/.test(pem)){try{const decoded=atob(pem.replace(/\s/g,''));if(decoded.startsWith('-----BEGIN '))pem=decoded.trim();}catch{}}
+  const match=pem.match(/^-----BEGIN (RSA PRIVATE KEY|PRIVATE KEY)-----\s*([A-Za-z0-9+/=\s]+)\s*-----END \1-----$/);
+  if(!match)guestFail('GITHUB_PRIVATE_KEY is not a complete RSA PEM key. Re-enter the original GitHub App .pem file in Cloudflare; do not paste it into chat.',503);
+  let der;try{der=Uint8Array.from(atob(match[2].replace(/\s/g,'')),c=>c.charCodeAt(0));}catch{guestFail('GITHUB_PRIVATE_KEY has invalid PEM base64 content',503);}
+  if(match[1]==='PRIVATE KEY')return der;
   // GitHub downloads PKCS#1 RSA keys; WebCrypto imports PKCS#8. Wrap the same
   // key locally (version + rsaEncryption identifier + octet string), no rotation.
   const tlv=(tag,bytes)=>{const n=bytes.length,length=n<128?[n]:n<256?[129,n]:[130,n>>8,n&255];return new Uint8Array([tag,...length,...bytes]);};
@@ -39,7 +46,7 @@ async function guestInstallationToken(env,ownerCheck=false){
   if(!env.GITHUB_APP_ID||!env.GITHUB_INSTALLATION_ID||!env.GITHUB_PRIVATE_KEY)guestFail('Guest repository connection is not configured',503);
   const cacheKey=String(env.GITHUB_APP_ID)+':'+String(env.GITHUB_INSTALLATION_ID);
   if(guestInstallationCache?.key===cacheKey&&guestInstallationCache.until>Date.now()+60000)return guestInstallationCache.token;
-  const der=guestPkcs8(env.GITHUB_PRIVATE_KEY.replace(/\\n/g,'\n'));
+  const der=guestPkcs8(env.GITHUB_PRIVATE_KEY);
   const key=await crypto.subtle.importKey('pkcs8',der,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
   const now=Math.floor(Date.now()/1000),part=v=>b64url(te.encode(JSON.stringify(v))),unsigned=part({alg:'RS256',typ:'JWT'})+'.'+part({iat:now-60,exp:now+540,iss:String(env.GITHUB_APP_ID)});
   const signature=b64url(new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5',key,te.encode(unsigned))));

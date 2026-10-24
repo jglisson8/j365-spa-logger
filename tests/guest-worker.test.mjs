@@ -30,6 +30,8 @@ response=await worker.fetch(new Request('https://spa.test/api/me',{headers}),env
 const keys=await crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);
 env.GITHUB_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\n'+Buffer.from(await crypto.subtle.exportKey('pkcs8',keys.privateKey)).toString('base64')+'\n-----END PRIVATE KEY-----';env.GITHUB_APP_ID='123';env.GITHUB_INSTALLATION_ID='456';env.GUEST_ACCESS_ENABLED='true';
 const pkcs1=createPrivateKey(env.GITHUB_PRIVATE_KEY).export({format:'pem',type:'pkcs1'});assert.deepEqual(Buffer.from(guestPkcs8(pkcs1)),Buffer.from(await crypto.subtle.exportKey('pkcs8',keys.privateKey)));
+for(const wrapped of [JSON.stringify(pkcs1),pkcs1.replaceAll('\n','\\n'),Buffer.from(pkcs1).toString('base64')])assert.deepEqual(Buffer.from(guestPkcs8(wrapped)),Buffer.from(guestPkcs8(pkcs1)));
+for(const invalid of ['not a key','"broken json','-----BEGIN RSA PRIVATE KEY-----\n?bad?\n-----END RSA PRIVATE KEY-----'])assert.throws(()=>guestPkcs8(invalid),e=>e.status===503&&!e.message.includes('?bad?'));
 let policy={schema_version:1,grants:[grant]},calls=[],documents=new Map(),head=1,conflictOnce=false,postedTree=null,commitDocument=null;
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});
 globalThis.fetch=async(url,options={})=>{const u=new URL(url),p=u.pathname;calls.push([p,options.method||'GET']);
