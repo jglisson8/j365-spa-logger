@@ -1,5 +1,8 @@
 function setupPwa() {
   if (typeof window === 'undefined' || !document.querySelector) return;
+  // Guest beta is an online, memory-only view; do not promise offline saves or
+  // install the owner's root start_url for a guest.
+  if(typeof guestPage==='function'&&guestPage())return;
   // Install only the secure origin, where existing private sync and local records live.
   if (!location.hostname.endsWith('workers.dev') && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
   const panel = document.createElement('section');
