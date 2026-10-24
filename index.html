@@ -133,7 +133,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.54.3',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.54.4',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -1636,7 +1636,17 @@ function setupAppWorkflow(){
   $('maintenanceForm').addEventListener('reset',()=>queueMicrotask(()=>{if(safeActivity(prefs.service)){$('maintenanceActivity').value=prefs.service;maintenanceUI();}resetBaseline($('maintenanceForm'));}));
   // Account detail belongs in Service; routine state stays as one compact badge.
   const settings=$('appConnectionSettings'),status=document.querySelector('.status');
-  if(settings&&status){const detail=document.createElement('p');detail.append($('identity'));settings.append(detail);const button=document.createElement('button');button.type='button';button.className='app-sync-button';button.append($('syncState'));status.append(button);button.onclick=()=>{setTab('maintenance');settings.open=true;settings.scrollIntoView?.({behavior:'smooth',block:'center'});};}
+  if(settings&&status){
+    const detail=document.createElement('p');detail.append($('identity'));settings.append(detail);
+    const link=document.createElement('a');link.id='appSyncLink';link.className='app-sync-button';link.append($('syncState'));status.append(link);
+    const isSignIn=()=>$('syncState').textContent.trim()==='Local only'&&location.hostname.endsWith('workers.dev');
+    const refreshLink=()=>{const signIn=isSignIn();link.href=signIn?'/auth/start':'#appConnectionSettings';link.classList.toggle('is-sign-in',signIn);link.setAttribute('aria-label',signIn?'Local only — sign in with GitHub':'Open app and connection settings');link.title=signIn?'Sign in with GitHub':'App & connection';};
+    const guardSignIn=e=>{if(appHasUnsavedWork()){e.preventDefault();alert('Save or finish your unsaved work before signing in. Your entry has not been cleared.');}};
+    link.onclick=e=>{if(isSignIn()){guardSignIn(e);return;}e.preventDefault();setTab('maintenance');settings.open=true;settings.scrollIntoView?.({behavior:'smooth',block:'center'});};
+    $('identity').addEventListener('click',e=>{if(e.target.closest('a[href="/auth/start"]'))guardSignIn(e);});
+    new MutationObserver(refreshLink).observe($('syncState'),{childList:true,characterData:true,subtree:true});refreshLink();
+    const signInStyle=document.createElement('style');signInStyle.textContent='.app-sync-button{display:inline-flex;align-items:center;min-height:40px;text-decoration:none}.app-sync-button.is-sign-in{text-decoration:underline;text-underline-offset:3px}.app-sync-button:focus-visible{outline:2px solid #79d6c2;outline-offset:3px;border-radius:5px}';document.head.append(signInStyle);
+  }
   const style=document.createElement('style');style.textContent='.entry-review{margin:10px 0;font-size:12px}.entry-review p{margin:6px 0}#appSaveNotice{position:fixed;bottom:calc(var(--app-nav-height,76px) + 86px);left:50%;transform:translateX(-50%);z-index:40;max-width:calc(100% - 24px);width:max-content;padding:8px 12px;background:#142d32;border:1px solid #4c786e;border-radius:12px;color:#adf0de;font-size:13px;box-shadow:0 5px 25px #0005}#appSaveNotice button{margin-left:8px;min-height:40px}.app-ui .status{background:transparent;border:0;justify-content:flex-end;padding:0;margin:0 0 6px}.app-sync-button{background:transparent;border:0;font-size:11px;padding:6px;color:#aac4ce}.chart-readout[data-pinned="true"]{border-color:#79d6c2}';document.head.append(style);
   return {resetBaseline,review};
 }
