@@ -1,0 +1,19 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),{JSDOM,VirtualConsole}=require('jsdom');
+const html=fs.readFileSync('index.html','utf8').replace('render();calculate();connect();','render();calculate();');
+const dom=new JSDOM(html,{url:'https://spa.test/',runScripts:'dangerously',virtualConsole:new VirtualConsole(),beforeParse(w){w.scrollTo=()=>{};w.fetch=async()=>({ok:false,status:503,json:async()=>({error:'Synthetic test'})});w.HTMLDialogElement.prototype.showModal=function(){this.open=true};w.HTMLDialogElement.prototype.close=function(){this.open=false}}});
+const w=dom.window,now=Math.floor(Date.now()/60000)*60000,minute=60000,profile=w.eval("profileById('legacy-bleach')"),approved={profile,max_single_mL:250,max_daily_mL:500},settings={spa:{volume_gallons:395},targets:{fc_target_ppm:5}};
+w.SpaTime=w.eval('SpaTime');
+const sample=(choice='1',at=now-minute)=>({id:'sample-'+choice,type:'chemistry',time_zone:'America/Denver',timestamp:w.SpaTime.input(at),timestamp_instant:new Date(at).toISOString(),created_at:new Date(at).toISOString(),fc_ppm:Number(choice),measurement_method:'test_strip',measurement_sources:{fc_ppm:'test_strip'},strip_observations:{profile_id:'aquanexo-3in1-v1',readings:{fc_ppm:{choice,...w.stripChoiceRange('fc_ppm',choice)}}}});
+const plan=(events,products=[approved],config=settings)=>w.guestBleachPlan(events,products,config,17,now);
+for(const [block,upper]of [['0.5',.75],['1',2],['3',4]]){const r=plan([sample(block)]);assert.equal(r.status,'dose');assert.equal(r.assumed_fc,upper);const effect=w.profileFcGrams(profile,r.mL,'mL')*1000/(395*3.78541);assert.ok(effect<=5-upper+.00001);assert.ok(effect>5-upper-.02);assert.ok(w.guestSuggestedAmount(r.mL,'cup')*236.58816<=r.mL+.00001);}
+for(const block of ['5','10'])assert.equal(plan([sample(block)]).status,'none');assert.equal(plan([sample('20')]).status,'check');assert.equal(plan([]).status,'check');assert.equal(plan([sample('1',now-31*minute)]).status,'check');
+assert.equal(plan([sample()],[]).status,'check');assert.equal(plan([sample()],[{...approved,max_single_mL:1}]).status,'check');assert.equal(plan([sample()],[{...approved,profile:{...profile,concentration:null}}]).status,'check');
+const t=sample(),after=type=>({id:'after-'+type,type,time_zone:'America/Denver',timestamp:w.SpaTime.input(now),timestamp_instant:new Date(now).toISOString()});
+for(const type of ['chemical_addition','soak','water_change','water_top_off'])assert.equal(plan([t,after(type)]).status,'check');
+assert.equal(plan([t,{...after('chemical_addition'),timestamp:t.timestamp,timestamp_instant:t.timestamp_instant}]).status,'check','Same-minute additions count as intervening');
+const earlierDose={...after('chemical_addition'),timestamp:w.SpaTime.input(now-10*minute),timestamp_instant:new Date(now-10*minute).toISOString(),created_at:new Date(now-10*minute).toISOString(),product_id:profile.id,amount:1.9,unit:'cup',guest_actor:{user_id:17}};assert.equal(plan([earlierDose,t]).status,'check','Remaining daily allowance enforced');
+const larger=plan([t],[approved],{...settings,spa:{volume_gallons:790}}),normal=plan([t]);assert.ok(Math.abs(larger.mL-normal.mL*2)<.11);
+for(const unit of ['cup','tbsp','tsp','fl oz','mL'])assert.ok(w.guestSuggestedAmount(normal.mL,unit)*w.eval('PRODUCT_VOLUME')[unit]<=normal.mL+.00001);
+assert.equal(plan([{...t,measurement_method:'taylor',measurement_sources:{fc_ppm:'taylor'},strip_observations:undefined,fc_ppm:2.2}]).assumed_fc,2.2);
+assert.equal(plan([t],[approved],{...settings,targets:{fc_target_ppm:1.5}}).status,'none');
+const frozen=JSON.stringify(t);plan([t]);assert.equal(JSON.stringify(t),frozen);dom.window.close();console.log('PASS: upper-bound strip bleach plans, all FC blocks, stale/intervening/off-scale guards, approved products, strength/volume, caps, exact Taylor and downward unit rounding');

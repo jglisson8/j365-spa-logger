@@ -138,7 +138,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.61.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.62.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -1791,6 +1791,61 @@ function setupStripTesting(){
   $('history').addEventListener('click',e=>{if(!e.target.closest('[data-edit]')||!editingRecord?.strip_observations)return;for(const key of Object.keys(STRIP_PROFILE.blocks))if(isStripParameter(editingRecord,key)&&$('edit-'+key))$('edit-'+key).readOnly=true;const p=document.createElement('p');p.className='help';p.textContent='Strip choices and working ranges are preserved. To correct a strip observation, remove this entry and log the corrected test.';$('editFields').append(p);});
   update();
 }
+// Guest suggestions are drafts only. Canonical saved samples and actual doses
+// still pass through the existing server validation and private event history.
+function guestBleachPlan(events,products,settings,userId,now=Date.now()){
+ const stop=message=>({status:'check',message});
+ const approved=products.find(p=>p.profile.family==='hypochlorite');
+ if(!approved)return stop('Bleach is not enabled for this invitation.');
+ const rows=events.filter(e=>e.type==='chemistry'&&Number.isFinite(e.fc_ppm)&&Number.isFinite(modelTime(e))&&modelTime(e)<=now+60000).sort(timelineOrder),sample=rows.at(-1);
+ if(!sample||now-modelTime(sample)>30*60000)return stop('Log a fresh FC test to calculate bleach.');
+ const time=modelTime(sample);
+ if(events.some(e=>e.id!==sample.id&&Number.isFinite(modelTime(e))&&modelTime(e)<=now+60000&&timelineOrder(e,sample)>0&&(['soak','chemical_addition','water_change','water_top_off'].includes(e.type)||isExposure(e))))return stop('Water has changed since that test. Retest FC before calculating another dose.');
+ const range=isStripParameter(sample,'fc_ppm')?stripReading(sample,'fc_ppm'):null;
+ if(isStripParameter(sample,'fc_ppm')&&(!range||!Number.isFinite(range.maximum)))return stop('That strip result is off scale. Confirm FC before adding bleach.');
+ const assumed=range?range.maximum:sample.fc_ppm;
+ const target=settings?.targets?.fc_target_ppm??5;
+ if(!Number.isFinite(target)||target<=0||target>10)return stop('Ask the owner to check the FC target.');
+ const base={sample_id:sample.id,sample_time:time,assumed_fc:assumed,target,profile:approved.profile,source:range?'strip upper bound':'Taylor reading'};
+ if(assumed>=target)return {...base,status:'none',message:'No extra bleach suggested from this test. Confirm levels before soaking.'+(range&&range.minimum<target?' The strip range also includes values below the target.':'')};
+ const fill=events.filter(e=>e.type==='water_change'&&e.full&&timelineOrder(e,sample)<=0).sort(timelineOrder).at(-1),volume=fill?.gallons??settings?.spa?.volume_gallons??395;
+ if(!(Number.isFinite(volume)&&volume>0))return stop('Ask the owner to check the tub volume.');
+ const perML=profileFcGrams(approved.profile,1,'mL')*1000/(volume*3.78541);
+ if(!(Number.isFinite(perML)&&perML>0))return stop('This bleach needs usable product strength/density information before calculating.');
+ const mL=Math.floor(((target-assumed)/perML)*10)/10;
+ const used=events.filter(e=>e.type==='chemical_addition'&&e.product_id===approved.profile.id&&e.guest_actor?.user_id===userId&&Date.parse(e.created_at)>now-86400000).reduce((sum,e)=>sum+e.amount*(PRODUCT_VOLUME[e.unit]||0),0);
+ if(!(approved.max_single_mL>0&&approved.max_daily_mL>0)||mL>approved.max_single_mL+.00001||used+mL>approved.max_daily_mL+.00001)return stop('The calculated amount exceeds your permitted dose limit. Check with the owner.');
+ return {...base,status:'dose',mL,volume_gallons:volume,message:(range?'Uses the strip’s upper bound. ':'')+'Retest after mixing; actual FC may still be below the target.'};
+}
+function guestSuggestedAmount(mL,unit='cup'){
+ const digits=unit==='mL'?1:2,scale=10**digits;
+ return Math.floor((mL/PRODUCT_VOLUME[unit]+1e-10)*scale)/scale;
+}
+function refreshGuestDoseAdvice(){
+ if(!$('guestDoseAdvice'))return;
+ const rows=activeEvents(),plan=guestBleachPlan(rows,guestContext?.products||[],config,session?.user_id),selected=guestContext?.products.find(p=>p.profile.id===$('guestProduct').value);
+ const box=$('guestDoseAdvice');box.replaceChildren();
+ $('guestBleachShortcut').hidden=plan.status!=='dose'||!!guestCorrection;
+ if(guestCorrection){box.textContent='Correct the amount actually added. This does not recommend a new dose.';return;}
+ if(selected?.profile.family!=='hypochlorite'){box.textContent='For pH Down, follow the owner’s dose instructions. Automatic acid recommendations are not enabled.';return;}
+ const summary=document.createElement('p');summary.textContent=plan.message;box.append(summary);
+ if(plan.status!=='dose')return;
+ if(selected.profile.id!==plan.profile.id){box.textContent='Select '+plan.profile.name+' to use the approved bleach calculation.';return;}
+ const unit=$('guestUnit').value,amount=guestSuggestedAmount(plan.mL,unit);
+ if(!(amount>0)){box.textContent='Calculated volume is too small for this unit. Choose tsp or mL.';return;}
+ const quantity=document.createElement('strong');quantity.textContent='≈'+amount+' '+unit+' '+plan.profile.name;
+ const context=document.createElement('p');context.className='help';context.textContent='FC '+plan.assumed_fc+' ppm ('+plan.source+') → target '+plan.target+' ppm · '+plan.volume_gallons+' gal';
+ const use=document.createElement('button');use.id='guestUseSuggested';use.type='button';use.className='secondary';use.textContent='Use this amount';
+ use.onclick=()=>{
+  if(guestBusy||guestCorrection)return;
+  const current=guestBleachPlan(activeEvents(),guestContext?.products||[],config,session?.user_id);
+  if(current.status!=='dose'||current.sample_id!==plan.sample_id||current.mL!==plan.mL||$('guestProduct').value!==plan.profile.id){refreshGuestDoseAdvice();guestStatus('Test or product changed. Review the updated suggestion.');return;}
+  if($('guestAmount').value&&Number($('guestAmount').value)!==amount&&!confirm('Replace the entered amount with this suggestion? Nothing is saved yet.'))return;
+  $('guestAmount').value=amount;guestPending=null;$('guestConfirmAdded').checked=false;$('guestConfirmAdded').required=true;$('guestConfirmRow').hidden=false;
+  guestStatus('Amount filled in—not saved. Add the dose, confirm the actual amount, then Save.');
+ };
+ box.prepend(quantity,context);box.append(use);
+}
 function guestPage(){return typeof location!=='undefined'&&location.pathname==='/guest';}
 function guestInvitationMessage(grant,link){
  const windowText=grant?.starts_at&&grant?.ends_at?'Access: '+SpaTime.format(Date.parse(grant.starts_at),{dateStyle:'medium',timeStyle:'short'})+' to '+SpaTime.format(Date.parse(grant.ends_at),{dateStyle:'medium',timeStyle:'short'})+' (Mountain time).\n\n':'';
@@ -1836,6 +1891,7 @@ async function connectGuest(){
   $('guestProduct').value=data.products.some(p=>p.profile.id===selectedProduct)?selectedProduct:clean?data.products[0]?.profile.id||'':'';
   $('guestKind').querySelector('[value="chemical_addition"]').disabled=!data.products.length;
   $('guestChooseDose').disabled=!data.products.length;
+  refreshGuestDoseAdvice();
   $('guestOwnEntries').innerHTML=data.events.filter(e=>e.guest_actor?.user_id===session.user_id).sort((a,b)=>compareSpa(b,a)).slice(0,30).map(e=>'<div class="entry"><small>'+esc(e.timestamp)+'</small><strong>'+esc(label(e))+'</strong><button type="button" class="secondary" data-guest-correct="'+esc(e.id)+'">Correct my entry</button> <button type="button" class="secondary" data-guest-remove="'+esc(e.id)+'">Remove my entry</button></div>').join('')||'<p>No entries yet.</p>';
   guestStatus('Ready.');
   if(clean)guestBaseline=guestSignature();
@@ -1870,6 +1926,11 @@ function setupGuestMode(){
  activation.onsubmit=async e=>{e.preventDefault();if(guestBusy)return;guestBusy=true;$('guestActivate').disabled=true;try{await connectGuest();}finally{guestBusy=false;$('guestActivate').disabled=false;}};
  $('tab-chemistry').prepend(panel);$('guestAt').value=localNow();
  $('guestForm').hidden=true;
+ const suggestion=document.createElement('section');suggestion.id='guestDoseAdvice';suggestion.className='calcbox';suggestion.setAttribute('aria-live','polite');$('guestDose').prepend(suggestion);
+ $('guestDose').querySelector('p.help').textContent='Save the amount actually added. Choose cups, tbsp, tsp, fl oz or mL; changing units does not convert the entered number.';
+ const confirmed=document.createElement('label');confirmed.id='guestConfirmRow';confirmed.className='inline';confirmed.hidden=true;confirmed.innerHTML='<input id="guestConfirmAdded" type="checkbox">I added the amount shown above';$('guestAmount').closest('#guestDose').append(confirmed);
+ const shortcut=document.createElement('button');shortcut.id='guestBleachShortcut';shortcut.type='button';shortcut.className='secondary';shortcut.hidden=true;shortcut.textContent='Check bleach dose';$('guestStatus').after(shortcut);shortcut.onclick=()=>{if(guestBusy||guestCorrection)return;const bleach=guestContext?.products.find(p=>p.profile.family==='hypochlorite');if(!bleach)return;if(Number($('guestAmount').value)>0&&$('guestProduct').value!==bleach.profile.id){guestStatus('Finish the current addition before switching products.');return;}$('guestChooseDose').click();$('guestProduct').value=bleach.profile.id;refreshGuestDoseAdvice();suggestion.scrollIntoView?.({behavior:'smooth',block:'start'});};
+ for(const event of ['input','change'])for(const id of ['guestProduct','guestUnit','guestAmount'])$(id).addEventListener(event,()=>{if(!$('guestConfirmRow').hidden)$('guestConfirmAdded').checked=false;refreshGuestDoseAdvice();});
  // Keep the main task in view; account details and history are available on demand.
  $('guestInstructions').hidden=true;
  const connection=document.createElement('details');connection.id='guestConnection';connection.innerHTML='<summary>Access &amp; connection</summary><p class="help">Internet is needed to save. Entries sync to the owner’s private history.</p>';connection.append($('guestExpiry'),$('guestRefresh'),panel.querySelector('a[href="/guest/logout"]'));panel.append(connection);
@@ -1880,9 +1941,9 @@ function setupGuestMode(){
  const timeSummary=()=>{$('guestTimeSummary').textContent=guestTimeEdited||guestCorrection?'Time: '+$('guestAt').value.replace('T',' '):$('guestKind').value==='soak'?'Soak starts now · change':'Time: Now · change';};
  for(const event of ['input','change'])$('guestAt').addEventListener(event,()=>{guestTimeEdited=true;timeSummary();});useNow.onclick=()=>{guestTimeEdited=false;guestPending=null;$('guestAt').value=localNow();timeBox.open=false;timeSummary();};
  const afterDose=document.createElement('section');afterDose.id='guestAfterDose';afterDose.className='guest-dose-reminder';afterDose.hidden=true;afterDose.setAttribute('role','status');afterDose.innerHTML='<h3>After your dose</h3><p></p><details><summary>Safety details</summary>'+GUEST_DOSE_DETAILS+'</details><button type="button" class="secondary" id="guestDoseUnderstood">Got it</button>';panel.querySelector('#guestForm').before(afterDose);$('guestDoseUnderstood').onclick=()=>{afterDose.hidden=true;};
- const kind=()=>{for(const [id,type]of [['guestTest','chemistry'],['guestSoak','soak'],['guestDose','chemical_addition']]){const active=$('guestKind').value===type;$(id).hidden=!active;for(const input of $(id).querySelectorAll('input,select'))input.disabled=!active;}for(const b of activities.querySelectorAll('button')){const active=b.dataset.guestKind===$('guestKind').value;b.setAttribute('aria-pressed',String(active));b.className=active?'primary':'secondary';}timeSummary();};$('guestKind').onchange=kind;activities.onclick=e=>{const b=e.target.closest('[data-guest-kind]');if(!b||b.disabled||b.dataset.guestKind===$('guestKind').value)return;if(guestCorrection){guestStatus('Save or cancel your correction before switching activities.');return;}$('guestKind').value=b.dataset.guestKind;$('guestKind').dispatchEvent(new Event('change',{bubbles:true}));};kind();
+ const kind=()=>{for(const [id,type]of [['guestTest','chemistry'],['guestSoak','soak'],['guestDose','chemical_addition']]){const active=$('guestKind').value===type;$(id).hidden=!active;for(const input of $(id).querySelectorAll('input,select'))input.disabled=!active;}for(const b of activities.querySelectorAll('button')){const active=b.dataset.guestKind===$('guestKind').value;b.setAttribute('aria-pressed',String(active));b.className=active?'primary':'secondary';}timeSummary();refreshGuestDoseAdvice();};$('guestKind').onchange=kind;activities.onclick=e=>{const b=e.target.closest('[data-guest-kind]');if(!b||b.disabled||b.dataset.guestKind===$('guestKind').value)return;if(guestCorrection){guestStatus('Save or cancel your correction before switching activities.');return;}$('guestKind').value=b.dataset.guestKind;$('guestKind').dispatchEvent(new Event('change',{bubbles:true}));};kind();
  $('guestAmount').required=true;$('guestAmount').min='0.000001';$('guestProduct').required=true;$('guestBathers').required=true;$('guestMinutes').required=true;
- const clear=()=>{guestCorrection=null;guestPending=null;guestTimeEdited=false;$('guestAt').value=localNow();timeBox.open=false;timeSummary();$('guestSubmit').textContent='Save entry';$('guestCancel').hidden=true;};$('guestCancel').onclick=clear;
+ const clear=()=>{guestCorrection=null;guestPending=null;guestTimeEdited=false;$('guestConfirmAdded').required=false;$('guestConfirmAdded').checked=false;$('guestConfirmRow').hidden=true;$('guestAt').value=localNow();timeBox.open=false;timeSummary();$('guestSubmit').textContent='Save entry';$('guestCancel').hidden=true;};$('guestCancel').onclick=clear;
  for(const event of ['input','change'])$('guestForm').addEventListener(event,()=>{guestPending=null;});
  $('guestForm').onsubmit=async e=>{e.preventDefault();if(guestBusy)return;if(!session||!guestContext){guestStatus('Connect before saving.');return;}if(!$('guestForm').checkValidity()){$('guestForm').reportValidity?.();return;}guestBusy=true;
   const controls=[...$('guestForm').querySelectorAll('input,select,button')].map(input=>[input,input.disabled]);for(const [input]of controls)input.disabled=true;
@@ -1899,6 +1960,7 @@ function setupGuestManagement(){
  const box=document.createElement('details');box.id='guestManagement';
  box.innerHTML='<summary>Guest invitations</summary><p class="help">No account needed. Each private link allows strip tests, soaks, approved additions and read-only Trends during its access window.</p><button type="button" class="secondary" id="guestLoadAccess">Load invitations</button> <button type="button" class="secondary" id="guestCheckBackend">Check guest connection</button><p id="guestManageStatus" role="status"></p><div id="guestGrantList"></div><div id="guestLinkPanel" hidden><label for="guestInviteLink">New private invitation link</label><input id="guestInviteLink" readonly autocomplete="off" spellcheck="false"><button type="button" class="secondary" id="guestCopyInvite">Copy invitation link</button><p class="help">Treat this link like a password. Anyone holding it has this guest’s access. Copy and send privately; the link cannot be retrieved after leaving/reloading. Revoke and create another if lost.</p></div><form id="guestGrantForm" hidden><label for="guestName">Guest name</label><input id="guestName" maxlength="100" required autocomplete="off"><label for="guestStart">Access starts · Mountain time</label><input id="guestStart" type="datetime-local" required><label for="guestEnd">Access ends · Mountain time</label><input id="guestEnd" type="datetime-local" required><label for="guestOwnerInstructions">Instructions</label><textarea id="guestOwnerInstructions" maxlength="2000"></textarea><p class="help">Optional product caps are permission limits, not recommended doses. Leave unchecked for tests and soaks only.</p>'+['bleach','acid'].map(role=>'<label class="inline"><input id="guestAllow-'+role+'" type="checkbox">Allow current '+role+' product</label><div class="three"><div><label for="guestSingle-'+role+'">Maximum per addition</label><input id="guestSingle-'+role+'" type="number" min="0.000001" step="any"></div><div><label for="guestDaily-'+role+'">Maximum in 24 hours</label><input id="guestDaily-'+role+'" type="number" min="0.000001" step="any"></div><div><label for="guestLimitUnit-'+role+'">Unit for both limits</label><select id="guestLimitUnit-'+role+'">'+['cup','tbsp','tsp','fl oz','mL'].map(u=>'<option'+(u===(role==='bleach'?'cup':'tbsp')?' selected':'')+'>'+u+'</option>').join('')+'</select></div></div>').join('')+'<button class="primary">Create invitation link</button></form>';
  $('tab-maintenance').append(box);
+ for(const role of ['bleach','acid'])for(const option of $('guestLimitUnit-'+role).options){option.defaultSelected=option.value==='cup';option.selected=option.value==='cup';}
  const codeLabel=document.createElement('label');codeLabel.htmlFor='guestInviteCode';codeLabel.textContent='Separate access code · shown once';const code=document.createElement('input');code.id='guestInviteCode';code.readOnly=true;code.autocomplete='off';code.spellcheck=false;const copyCode=document.createElement('button');copyCode.id='guestCopyCode';copyCode.type='button';copyCode.className='secondary';copyCode.textContent='Copy access code';$('guestLinkPanel').append(codeLabel,code,copyCode);
  $('guestLinkPanel').querySelector('.help').textContent='Send the link privately and provide the access code separately. First activation locks it to one browser, not a physical phone. Both are shown only once. Use Reset browser if lost, switching browsers, or cookies are cleared.';
  const messageLabel=document.createElement('label');messageLabel.htmlFor='guestInviteMessage';messageLabel.textContent='Link + instructions · code not included';const message=document.createElement('textarea');message.id='guestInviteMessage';message.readOnly=true;message.rows=7;message.autocomplete='off';message.spellcheck=false;$('guestCopyInvite').before(messageLabel,message);$('guestCopyInvite').textContent='Copy link + instructions';

@@ -1,5 +1,33 @@
 # Guest invitations — v6.58.0 / Worker v4
 
+## v6.62.0: conservative guest bleach suggestions
+
+Guest Dose now calculates bleach from a saved FC test no more than 30 minutes
+old. For strips it uses the stored range's **upper bound**, never its midpoint
+or lower bound. Exact Taylor FC values remain exact. Off-scale upper bounds,
+missing product information, intervening soaks/additions/water changes or jet
+exposures, and exceeded single/daily permissions pause the calculation.
+
+The approved product snapshot and tub volume feed the same `profileFcGrams`
+conversion as the owner calculator. The target is `targets.fc_target_ppm` when
+present, otherwise the existing calculator default of 5 ppm; it is displayed.
+Using the upper bound can leave actual FC below that target, so a retest is
+explicitly required. The UI never declares water safe from a suggestion.
+
+Cups are the default for guest bleach/pH Down entries and new permission-limit
+forms. Other volume units remain available; corrections retain original units.
+Suggestions round downward for display, and unit changes never overwrite a
+typed actual amount. Use this amount only fills a draft: confirmation that the
+dose was added plus a separate Save are required. The server still stores only
+canonical actual quantities. A saved addition invalidates the old test for a
+second suggestion. No historical data, model coefficients, owner calculators,
+automatic acid doses, or 7.8-strip decisions are changed. No Worker update.
+
+Tests cover every FC block, stale/changed samples, product strength and volume,
+caps, safe rounding, staging without writes, actual confirmation, one save,
+retest gating and mobile layout. Run `scripts/check-guest-dose-browser.cjs` for
+the isolated synthetic phone workflow.
+
 ## v6.61.0: streamlined guest workflow
 
 - Matching valid invitation sessions skip repeat code entry when reopening the
