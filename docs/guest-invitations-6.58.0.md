@@ -1,5 +1,26 @@
 # Guest invitations — v6.58.0 / Worker v4
 
+## v6.60.0: guest quick guide and dose reminders
+
+Guest navigation now includes Log, Trends and Instructions. The quick guide
+covers strip pH/FC checks, measured versus predicted values, approved doses,
+actual amount/unit/time logging, retesting, soaks and cover handling. Owner
+instructions are also displayed as plain text, with shortcuts back to tests
+and Trends. Switching tabs preserves drafts and does not record anything.
+
+The dose form shows circulation guidance before saving. A successful new-dose
+save shows a dismissible reminder; correcting an old dose does not re-trigger
+it. No timer or reminder automatically logs another dose or certifies safe water.
+The guest form remains an actual-addition logger, not a strip-based acid-demand
+calculator. Models, historical quantities and server permissions are unchanged.
+
+The reminder uses 20 minutes rather than the proposed five: [Jacuzzi J-300
+manual §13.2](https://jacuzzipartners.com/knowledgelibrary/assets/pdf/4666.pdf)
+specifies running jet pumps with the cover open for at least 20 minutes after
+shock/pH chemicals. Both J-365 jet pumps are named for guest clarity; follow any
+longer product-label requirement. The guide includes separation of chemicals,
+keeping bathers out during dosing, retesting and supervision of an open spa.
+
 ## v6.59.0 / Worker v4.1: one-browser activation
 
 v6.59.1 keeps two separate copy actions: **Copy link + instructions** produces

@@ -15,12 +15,13 @@ const {chromium}=require(process.env.J365_PLAYWRIGHT||'playwright'),root=path.jo
   return route.fulfill({contentType:'text/html',body:fs.readFileSync(path.join(root,'index.html'),'utf8')});
  });
  await page.goto('https://spa.test/guest#invite=synthetic-invitation');await page.locator('#guestActivation').waitFor({state:'visible'});assert.equal(await page.locator('#guestForm').isVisible(),false);await page.locator('#guestAccessCode').fill('synthetic-code');await page.locator('#guestActivate').click();await page.waitForFunction(()=>document.getElementById('guestInstructions').textContent.includes('Use strips'));assert.equal(await page.locator('#guestActivation').isVisible(),false);assert.equal(await page.locator('#guestAccessCode').inputValue(),'');
- assert.equal(await page.locator('.tabs button:visible').count(),2);assert.equal(await page.locator('#chemistryForm').isVisible(),false);assert.equal(await page.locator('#guestTest').isVisible(),true);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ assert.equal(await page.locator('.tabs button:visible').count(),3);assert.equal(await page.locator('#chemistryForm').isVisible(),false);assert.equal(await page.locator('#guestTest').isVisible(),true);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ await page.locator('[data-tab="guest-guide"]').click();assert.equal(await page.locator('#tab-guest-guide').isVisible(),true);assert.match(await page.locator('#tab-guest-guide').textContent(),/at least 20 minutes/);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.locator('#guestGuideTest').click();assert.equal(await page.locator('#guestTest').isVisible(),true);
  await page.screenshot({path:'/tmp/j365-guest-phone.png'});
  await page.locator('[data-tab="trends"]').click();await page.locator('[data-expand-chart="ph"]').click();const portrait=await page.locator('#expandedChart svg').boundingBox();assert.ok(portrait.height>400);
  await page.touchscreen.tap(portrait.x+portrait.width*.65,portrait.y+portrait.height*.5);assert.equal(await page.locator('#expandedChart .chart-readout strong').count(),1);
  assert.equal(await page.locator('#expandedChart [data-edit-chart-bound]:enabled').count(),0);
  await page.setViewportSize({width:852,height:393});await page.waitForTimeout(100);const landscape=await page.locator('#expandedChart svg').boundingBox();assert.ok(landscape.height>200);await page.screenshot({path:'/tmp/j365-guest-trends-landscape.png'});
  assert.equal(await page.evaluate(()=>window.localStorage.getItem('j365_spa_events_v2')),'OWNER-SENTINEL');assert.equal(calls.includes('/api/config'),false);assert.deepEqual(errors,[]);
- console.log('PASS: guest phone layout, two-tab navigation, touch readout, expanded portrait/landscape Trends, readonly limits and owner store isolation');
+ console.log('PASS: guest phone layout, Instructions/Log/Trends navigation, touch readout, expanded portrait/landscape Trends, readonly limits and owner store isolation');
  }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
