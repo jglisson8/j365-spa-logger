@@ -77,6 +77,18 @@ const prepare=()=>new Request('https://spa.test/api/guest/prepare',{method:'POST
 response=await worker.fetch(prepare(),env);assert.equal(response.status,200);const deviceCookie=response.headers.get('Set-Cookie').split(';')[0];assert.match(response.headers.get('Set-Cookie'),/HttpOnly; Secure; SameSite=Lax/);
 const redeem=(value=credential,origin='https://spa.test',device=deviceCookie,code=issued.access_code)=>new Request('https://spa.test/api/guest/redeem',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',Cookie:'__Host-j365='+ownerCookie+'; '+device},body:JSON.stringify({invitation:value,access_code:code})});
 assert.equal(issued.access_code.length,16);assert.equal(policy.grants[0].code_hash,await guestInviteDigest(issued.access_code));assert.doesNotMatch(JSON.stringify(policy),new RegExp(issued.access_code));assert.equal(issued.grant.code_hash,undefined);assert.equal(issued.grant.device_hash,undefined);
+const codeRequest=(requestHeaders=ownerHeaders,id=issued.grant.id)=>new Request('https://spa.test/api/guests/code',{method:'POST',headers:requestHeaders,body:JSON.stringify({id})});
+assert.ok(policy.grants[0].code_sealed);assert.equal(issued.grant.code_sealed,undefined);
+const sealedCode=policy.grants[0].code_sealed;
+response=await worker.fetch(codeRequest(),env);assert.equal(response.status,200);assert.equal((await response.json()).access_code,issued.access_code);assert.equal(response.headers.get('Cache-Control'),'no-store');
+for(const h of [{},{...ownerHeaders,'X-CSRF-Token':'wrong'},{...ownerHeaders,Origin:'https://evil.test'},headers]){response=await worker.fetch(codeRequest(h),env);assert.ok([401,403].includes(response.status));assert.doesNotMatch(await response.text(),new RegExp(issued.access_code));}
+delete policy.grants[0].code_sealed;response=await worker.fetch(codeRequest(),env);assert.equal(response.status,409);assert.match((await response.json()).error,/older code/);policy.grants[0].code_sealed=sealedCode;
+policy.grants[0].code_sealed=await seal({purpose:'guest-access-code',grant_id:'different-grant',code:issued.access_code},env);response=await worker.fetch(codeRequest(),env);assert.equal(response.status,409);
+policy.grants[0].code_sealed=sealedCode;response=await worker.fetch(codeRequest(),{...env,SESSION_SECRET:env.SESSION_SECRET+'rotated'});assert.equal(response.status,401); // Owner cookie also uses the old key.
+const rotatedEnv={...env,SESSION_SECRET:env.SESSION_SECRET+'rotated'},rotatedCookie=await seal({user:'jglisson8',token:'owner-token',csrf:'owner-csrf',until:now+hours},rotatedEnv);
+response=await worker.fetch(codeRequest({...ownerHeaders,Cookie:'__Host-j365='+rotatedCookie}),rotatedEnv);assert.equal(response.status,409);assert.match((await response.json()).error,/cannot be decrypted/);
+policy.grants[0].code_sealed=await seal({purpose:'wrong-purpose',grant_id:issued.grant.id,code:issued.access_code},env);response=await worker.fetch(codeRequest(),env);assert.equal(response.status,409);policy.grants[0].code_sealed=sealedCode;
+assert.throws(()=>guestPolicy({schema_version:1,grants:[{...policy.grants[0],code_sealed:issued.access_code}]}),/saved access code/);
 response=await worker.fetch(redeem(credential,'https://spa.test',deviceCookie,'wrong'),env);assert.equal(response.status,403);assert.equal(policy.grants[0].device_hash,null);
 response=await worker.fetch(redeem(credential,'https://evil.test'),env);assert.equal(response.status,403);
 response=await worker.fetch(redeem(credential.slice(0,-1)+(credential.endsWith('A')?'B':'A')),env);assert.equal(response.status,403);
@@ -87,6 +99,7 @@ assert.ok(policy.grants[0].activated_at);assert.ok(policy.grants[0].device_hash)
 response=await worker.fetch(prepare(),env);const otherDevice=response.headers.get('Set-Cookie').split(';')[0];response=await worker.fetch(redeem(credential,'https://spa.test',otherDevice),env);assert.equal(response.status,403);assert.equal(response.headers.get('Set-Cookie'),null);
 response=await worker.fetch(new Request('https://spa.test/api/guest/me',{headers:{Cookie:invitationCookie}}),env);assert.equal(response.status,403,'Session without bound browser cookie must fail');
 response=await worker.fetch(new Request('https://spa.test/api/guest/me',{headers:inviteHeaders}),env);assert.equal(response.status,200);const inviteMe=await response.json();assert.equal(inviteMe.user,'House sitter');assert.equal(inviteMe.user_id,'invite:'+issued.grant.id);
+response=await worker.fetch(codeRequest({...inviteHeaders,'X-CSRF-Token':inviteMe.csrf}),env);assert.equal(response.status,401);
 response=await worker.fetch(new Request('https://spa.test/api/me',{headers:{Cookie:'__Host-j365='+ownerCookie+'; '+invitationCookie}}),env);assert.equal((await response.json()).user,'jglisson8');
 for(const p of ['/api/config','/api/log','/api/events?month='+ts.slice(0,7),'/api/guests']){response=await worker.fetch(new Request('https://spa.test'+p,{headers:inviteHeaders}),env);assert.equal(response.status,401,p);}
 const guestDoseInput={...base,id:'invitation-dose-123456789',type:'chemical_addition',product_id:profile.id,amount:.25,unit:'cup'};
@@ -102,15 +115,20 @@ response=await worker.fetch(new Request('https://spa.test/api/guests/reset',{met
 response=await worker.fetch(new Request('https://spa.test/api/guest/me',{headers:inviteHeaders}),env);assert.equal(response.status,403);response=await worker.fetch(redeem(),env);assert.equal(response.status,403);
 const contenders=await Promise.all([deviceCookie,otherDevice].map(device=>worker.fetch(redeem(resetCredential,'https://spa.test',device,reset.access_code),env)));assert.equal(contenders.filter(r=>r.status===200).length,1);assert.ok(contenders.some(r=>[403,409].includes(r.status)));for(const r of contenders)if(r.status!==200)assert.equal(r.headers.get('Set-Cookie'),null);
 response=await worker.fetch(new Request('https://spa.test/api/guests',{headers:ownerHeaders}),env);const editable=await response.json();assert.equal(editable.policy.grants[0].invite_hash,undefined);assert.equal(editable.policy.grants[0].code_hash,undefined);assert.equal(editable.policy.grants[0].device_hash,undefined);
+assert.equal(editable.policy.grants[0].code_sealed,undefined);response=await worker.fetch(codeRequest(),env);assert.equal((await response.json()).access_code,reset.access_code);
+const encryptedReset=policy.grants[0].code_sealed;
+response=await worker.fetch(new Request('https://spa.test/api/guests',{method:'POST',headers:ownerHeaders,body:JSON.stringify({sha:policySha,policy:{...editable.policy,grants:editable.policy.grants.map(g=>({...g,code_sealed:encryptedReset}))}})}),env);assert.equal(response.status,400);
 response=await worker.fetch(new Request('https://spa.test/api/guests',{method:'POST',headers:ownerHeaders,body:JSON.stringify({sha:editable.sha,policy:{...editable.policy,grants:editable.policy.grants.map(g=>({...g,revoked:true}))}})}),env);assert.equal(response.status,200,await response.clone().text());
 assert.equal(policy.grants[0].invite_hash,await guestInviteDigest(resetCredential.split('.')[1]));
+assert.equal(policy.grants[0].code_sealed,encryptedReset);response=await worker.fetch(codeRequest(),env);assert.equal(response.status,404);
 response=await worker.fetch(new Request('https://spa.test/api/guest/me',{headers:inviteHeaders}),env);assert.equal(response.status,403);response=await worker.fetch(saveInviteDose(),env);assert.equal(response.status,403);response=await worker.fetch(redeem(),env);assert.equal(response.status,403);
 policy.grants[0].revoked=false;policy.grants[0].ends_at=new Date(now-1000).toISOString();response=await worker.fetch(redeem(),env);assert.equal(response.status,403);
+response=await worker.fetch(codeRequest(),env);assert.equal(response.status,404);
 policy.grants[0].ends_at=grant.ends_at;policy.grants[0].starts_at=new Date(now+hours).toISOString();response=await worker.fetch(redeem(),env);assert.equal(response.status,403);
 policy.grants[0].starts_at=grant.starts_at;env.GUEST_ACCESS_ENABLED='false';response=await worker.fetch(redeem(),env);assert.equal(response.status,403);response=await worker.fetch(new Request('https://spa.test/api/guest/me',{headers:inviteHeaders}),env);assert.equal(response.status,403);
 response=await worker.fetch(new Request('https://spa.test/guest/logout'),env);assert.equal(response.status,302);assert.match(response.headers.get('Set-Cookie'),/__Host-j365-guest=;.*Max-Age=0/);assert.doesNotMatch(response.headers.get('Set-Cookie'),/__Host-j365=/);
 // Pre-upgrade reusable invitation links continue working until owner reset.
-delete env.GUEST_ACCESS_ENABLED;for(const k of ['single_device','code_hash','device_hash','activated_at'])delete policy.grants[0][k];
+delete env.GUEST_ACCESS_ENABLED;for(const k of ['single_device','code_hash','code_sealed','device_hash','activated_at'])delete policy.grants[0][k];
 response=await worker.fetch(redeem(resetCredential,'https://spa.test','',''),env);assert.equal(response.status,200,'Legacy invitation without code remains compatible');
 console.log('PASS: code required, hash-only storage, exclusive concurrent browser claim, same-browser lost-response retry, cookie binding, reset invalidation and legacy invitations');
 console.log('PASS: expiring hash-only invitations, separate guest cookies, owner session preservation, no-account redemption, dose sync, idempotency, owner-side revocation, access windows and kill switch');

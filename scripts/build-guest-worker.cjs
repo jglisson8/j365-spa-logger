@@ -7,8 +7,8 @@ source=source.replace("if (me.login !== OWNER) return json({ error: 'GitHub acco
 source=source.replace('user: me.login,','user: me.login,\n          ...(guest?{role:\'guest\',user_id:me.id,grant_id:guest.id}:{}),');
 source=source.replace("const headers = new Headers({ Location: '/', 'Cache-Control': 'no-store' });","const headers = new Headers({ Location: guest?'/guest':'/', 'Cache-Control': 'no-store' });");
 source=source.replace("if (req.method === 'GET' && path === '/api/me') {","if (req.method === 'GET' && path === '/api/me') {\n        let cookie;try{cookie=await unseal(getCookie(req,'__Host-j365'),env);}catch{}\n        if(cookie?.role==='guest'){const g=await guestIdentity(req,env);return json({user:g.user,user_id:g.user_id,role:'guest',csrf:g.csrf,expires_at:g.grant.ends_at,api_version:3});}");
-source=source.replace("version: '3.8'","version: '4.1'").replace('Worker v3.8 — installable public PWA assets; private APIs unchanged.','Worker v4.1 — one-browser guest activation with separate access codes; owner OAuth retained.');
+source=source.replace("version: '3.8'","version: '4.2'").replace('Worker v3.8 — installable public PWA assets; private APIs unchanged.','Worker v4.2 — owner-only encrypted guest code retrieval; owner OAuth retained.');
 source+='\nexport {guestPolicy,guestConstruct,guestPublicEvent,guestStrip,guestRoutes,guestIdentity,guestLogin,guestPkcs8,guestInviteDigest,seal};\n';
 const target=path.join(root,'worker/j365-worker-v4.mjs');
 if(process.argv.includes('--check')){if(!fs.existsSync(target)||fs.readFileSync(target,'utf8')!==source)throw Error('Run node scripts/build-guest-worker.cjs');}else fs.writeFileSync(target,source);
-console.log('Worker 4.1 generated; new invitations require a separate code and one-browser activation.');
+console.log('Worker 4.2 generated; owner-only encrypted guest code retrieval.');

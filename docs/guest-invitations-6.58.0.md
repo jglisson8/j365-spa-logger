@@ -142,3 +142,23 @@ redaction, active dates, expiry, revocation, CSRF, duplicate retries, canonical
 shared-history doses and forecast effects. No real guest grant is needed to test.
 Deploy `worker/j365-worker-v4.mjs` after static publication; retain v3.9 as rollback.
 Historical measurements, quantities and chemistry equations are unchanged.
+# v6.63.0 / Worker 4.2 — saved guest access codes
+
+New and reset invitations retain an AES-GCM-encrypted access code in the private
+guest policy, using the existing Worker session secret. Activation still checks
+the code hash. Invitation links remain one-time and are not retained.
+
+Service → Guest invitations → Load invitations → Show access code retrieves a
+code only on demand, through an owner-authenticated, same-origin, CSRF-protected
+POST. Normal owner/guest responses never disclose encrypted codes or hashes.
+Codes are not saved in browser storage; Hide or reloading the list clears them.
+Copy link/instructions and Copy access code remain separate.
+
+Older hash-only codes cannot be recovered: Reset browser creates a new saved
+code and invalidates the old link/session as before. Changing SESSION_SECRET
+also makes saved codes unreadable; reset those invitations afterward. Expired
+and revoked invitation codes cannot be retrieved. Owner policy updates preserve
+encrypted values server-side and reject client attempts to replace them.
+
+Deploy Worker 4.2 before publishing the UI. No grant is created, reset, or
+expanded automatically, and historical water records are unchanged.

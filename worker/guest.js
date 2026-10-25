@@ -13,7 +13,8 @@ function guestPolicy(value){
   if(value.schema_version!==1||!Array.isArray(value.grants)||value.grants.length>20)guestFail('Invalid guest access list');
   const ids=new Set();
   for(const g of value.grants){
-    guestKeys(g,['id','user_id','login','auth_type','label','invite_hash','code_hash','single_device','device_hash','activated_at','starts_at','ends_at','revoked','products','instructions']);
+    guestKeys(g,['id','user_id','login','auth_type','label','invite_hash','code_hash','code_sealed','single_device','device_hash','activated_at','starts_at','ends_at','revoked','products','instructions']);
+    if(g.code_sealed!==undefined&&(g.auth_type!=='invite'||!g.single_device||typeof g.code_sealed!=='string'||g.code_sealed.length>1000||!/^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{40,}$/.test(g.code_sealed)))guestFail('Invalid saved access code');
     if(!/^[-a-zA-Z0-9_]{8,100}$/.test(g.id)||ids.has(g.id))guestFail('Invalid guest identity');ids.add(g.id);
     if(g.auth_type==='invite'){
       if(typeof g.label!=='string'||!g.label.trim()||g.label.length>100||!/^[A-Za-z0-9_-]{43}$/.test(g.invite_hash)||g.user_id!=null||g.login!=null)guestFail('Invalid invitation identity');
@@ -75,8 +76,18 @@ async function guestIdentity(req,env){
 }
 const guestCookie=(value,age)=>`__Host-j365-guest=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${age}`;
 async function guestInviteDigest(secret){return b64url(new Uint8Array(await crypto.subtle.digest('SHA-256',te.encode(secret))));}
-function guestSafeGrant(g){return g.auth_type==='invite'?Object.fromEntries(Object.entries(g).filter(([k])=>!['invite_hash','code_hash','device_hash'].includes(k))):g;}
+function guestSafeGrant(g){return g.auth_type==='invite'?Object.fromEntries(Object.entries(g).filter(([k])=>!['invite_hash','code_hash','code_sealed','device_hash'].includes(k))):g;}
 async function guestInvitationRoutes(req,env,url){
+  if(url.pathname==='/api/guests/code'&&req.method==='POST'){
+    const owner=await requireSession(req,env);requireWriteAuth(req,url,owner);
+    const body=await parseJsonBody(req,1000);guestKeys(body,['id']);
+    const file=await readRepoJson(GUEST_ACCESS_FILE,owner.token,true),grant=guestPolicy(file.value||{schema_version:1,grants:[]}).grants.find(g=>g.id===body.id&&g.auth_type==='invite'&&!g.revoked&&guestEpoch(g.ends_at)>Date.now());
+    if(!grant)guestFail('Invitation is expired, revoked or unavailable',404);
+    if(!grant.code_sealed)guestFail('This older code was not saved. Use Reset browser to generate a retrievable code.',409);
+    let saved;try{saved=await unseal(grant.code_sealed,env);}catch{guestFail('Saved code cannot be decrypted. Use Reset browser to generate a new code.',409);}
+    if(saved.purpose!=='guest-access-code'||saved.grant_id!==grant.id||typeof saved.code!=='string'||await guestInviteDigest(saved.code)!==grant.code_hash)guestFail('Saved code does not match this invitation. Use Reset browser.',409);
+    return json({access_code:saved.code});
+  }
   if(url.pathname==='/guest/logout'&&req.method==='GET')return redirect('/guest',guestCookie('',0));
   // Establish the browser cookie BEFORE consuming an invitation. A lost redeem
   // response can then be retried in the same browser without locking it out.
@@ -92,9 +103,11 @@ async function guestInvitationRoutes(req,env,url){
     const policy=guestPolicy(file.value||{schema_version:1,grants:[]}),prior=resetting?policy.grants.find(g=>g.id===body.id&&g.auth_type==='invite'&&!g.revoked):null;
     if(resetting&&(!prior||guestEpoch(prior.ends_at)<=Date.now()))guestFail('Only an unrevoked, unexpired invitation can be reset');
     const secret=random(32),code=random(12),grant={...(prior||body.invitation),id:prior?.id||crypto.randomUUID(),auth_type:'invite',invite_hash:await guestInviteDigest(secret),single_device:true,code_hash:await guestInviteDigest(code),device_hash:null,activated_at:null,revoked:false};
+    grant.code_sealed=await seal({purpose:'guest-access-code',grant_id:grant.id,code},env);
     const next=guestPolicy({schema_version:1,grants:resetting?policy.grants.map(g=>g.id===grant.id?grant:g):[...policy.grants,grant]});
     const sha=await writeRepoJson(GUEST_ACCESS_FILE,owner.token,next,file.sha,resetting?'Reset spa guest browser activation':'Create expiring spa guest invitation');
-    // Only the hash is stored on GitHub. The raw link is returned once, no-store.
+    // Codes are encrypted at rest; hashes still verify activation. The raw
+    // invitation link remains one-time and is never stored. Responses no-store.
     return json({ok:true,sha,grant:guestSafeGrant(grant),access_code:code,invitation_url:url.origin+'/guest#invite='+grant.id+'.'+secret});
   }
   if(url.pathname==='/api/guest/redeem'&&req.method==='POST'){
@@ -211,7 +224,7 @@ async function guestRoutes(req,env,url){
       const previous=guestPolicy(saved.value||{schema_version:1,grants:[]});if(!isObject(body.policy)||!Array.isArray(body.policy.grants))guestFail('Invalid guest settings');
       const policy=guestPolicy({...body.policy,grants:body.policy.grants.map(g=>{
         if(g.auth_type!=='invite')return g;const prior=previous.grants.find(p=>p.id===g.id&&p.auth_type==='invite');if(!prior)guestFail('Create new invitations using the invitation action');
-        if(['invite_hash','code_hash','device_hash'].some(k=>g[k]!=null)||g.single_device!==prior.single_device||g.activated_at!==prior.activated_at)guestFail('Activation settings can only be changed using Reset browser');return {...g,invite_hash:prior.invite_hash,...(prior.single_device?{code_hash:prior.code_hash,device_hash:prior.device_hash}: {})};
+        if(['invite_hash','code_hash','code_sealed','device_hash'].some(k=>g[k]!=null)||g.single_device!==prior.single_device||g.activated_at!==prior.activated_at)guestFail('Activation settings can only be changed using Reset browser');return {...g,invite_hash:prior.invite_hash,...(prior.single_device?{code_hash:prior.code_hash,device_hash:prior.device_hash,...(prior.code_sealed?{code_sealed:prior.code_sealed}:{})}: {})};
       })});
       // Pin immutable numeric identity and check supplied login. Never authorize by mutable login alone.
       for(const g of policy.grants){if(g.auth_type==='invite')continue;const user=await github('/users/'+encodeURIComponent(g.login),owner.token);if(user.id!==g.user_id||user.type!=='User')guestFail('Guest GitHub identity did not match');}
