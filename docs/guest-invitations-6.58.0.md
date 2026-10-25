@@ -1,5 +1,25 @@
 # Guest invitations — v6.58.0 / Worker v4
 
+## v6.61.0: streamlined guest workflow
+
+- Matching valid invitation sessions skip repeat code entry when reopening the
+  original texted link. Another guest's cookie cannot bypass activation.
+- Direct Test / Soak / Dose choices, FC/pH first, TA optional; only active
+  inputs validate. Account details and recent entries are collapsed.
+- New entries default to the current submission time, not page-open time.
+  Guests can edit the time; corrections and unchanged retries preserve their
+  original instant. The soak summary explicitly labels the start time.
+- A four-step guide and shorter invitation replace repeated prose. Trends are
+  optional. Essential post-dose circulation/retest guidance stays visible;
+  additional precautions remain available under Safety details.
+- In-flight form edits are disabled; one immutable payload is saved. Guest
+  permissions, private sync, chemistry calculations and historical data are
+  unchanged. No new calculated doses or learned 7.8-block acid rule are enabled.
+
+Regression checks cover hidden-field validation, current/manual/retry times,
+matching/mismatched invitation reuse, draft/unit preservation, dose corrections,
+concise instructions and a phone-width activity row. No Worker update is needed.
+
 ## v6.60.0: guest quick guide and dose reminders
 
 Guest navigation now includes Log, Trends and Instructions. The quick guide
