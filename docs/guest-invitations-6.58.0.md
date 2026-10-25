@@ -2,6 +2,13 @@
 
 ## v6.59.0 / Worker v4.1: one-browser activation
 
+v6.59.1 keeps two separate copy actions: **Copy link + instructions** produces
+a ready-to-text message with browser guidance, activation steps, dates and a
+notice that the code will arrive separately; **Copy access code** copies only
+the code. The first message never includes the code. Clipboard-denied browsers
+can manually select the read-only message. Creation/reset refreshes it and
+revocation clears it. No message or secret is persisted locally or sent for you.
+
 New invitations include a separately generated 16-character (96-bit) access
 code, shown once with its own copy button. Send the link privately; provide the
 code separately. Entering the correct code activates the first browser. Later
