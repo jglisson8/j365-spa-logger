@@ -12,14 +12,15 @@ const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8'),tick=()=
   w.localStorage.setItem('j365_spa_events_v2','OWNER-PRIVATE-SENTINEL');w.localStorage.setItem('j365_spa_config_v2','OWNER-PRIVATE-CONFIG');w.scrollTo=()=>{};w.alert=m=>errors.push(m);w.confirm=()=>true;
   w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;};
   w.fetch=async(url,options={})=>{requests.push(String(url));let body,status=200;
-   if(url==='/api/guest/redeem'){redeemed.push(JSON.parse(options.body).invitation);assert.equal(w.location.hash,'');body={ok:true};}
+   if(url==='/api/guest/prepare')body={ok:true};
+   else if(url==='/api/guest/redeem'){if(!JSON.parse(options.body).access_code){status=403;body={error:'Enter the access code supplied separately by the owner.'};}else{redeemed.push(JSON.parse(options.body).invitation);assert.equal(JSON.parse(options.body).access_code,'synthetic-code');assert.equal(w.location.hash,'');body={ok:true};}}
    else if(url==='/api/guest/me')body={user:'tester',user_id:17,role:'guest',csrf:'csrf'};
    else if(url==='/api/guest/context')body={user:'tester',expires_at:grant.ends_at,products:grant.products,instructions:grant.instructions,config,events:events.map(guestPublicEvent)};
    else if(url==='/api/guest/entries'){const input=JSON.parse(options.body).event;posts.push(input);if(rejectNext){rejectNext=false;throw Error('Connection interrupted');}const saved=guestConstruct(input,identity,events,config);events=events.filter(e=>e.id!==saved.supersedes_event_id);if(!saved.record_removal)events.push(saved);body={ok:true,event:guestPublicEvent(saved)};}
    else{status=503;body={error:'Unavailable'};}return {ok:status===200,status,json:async()=>body};
   };
  }});const w=dom.window,d=w.document,$=id=>d.getElementById(id);await tick();await tick();
- assert.ok($('guestPanel'));assert.equal($('guestInstructions').textContent,'Owner instructions');assert.equal($('guestManagement'),null);assert.equal($('pwaStatus'),null);assert.equal(w.eval('appHasUnsavedWork()'),false);
+ assert.ok($('guestPanel'));assert.equal($('guestActivation').hidden,false);assert.equal($('guestForm').hidden,true);assert.equal(redeemed.length,0);$('guestAccessCode').value='synthetic-code';$('guestActivation').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await tick();await tick();assert.equal($('guestAccessCode').value,'');assert.equal($('guestActivation').hidden,true);assert.equal($('guestForm').hidden,false);assert.equal($('guestInstructions').textContent,'Owner instructions');assert.equal($('guestManagement'),null);assert.equal($('pwaStatus'),null);assert.equal(w.eval('appHasUnsavedWork()'),false);
  assert.deepEqual(redeemed,[credential]);assert.equal(w.location.hash,'');assert.equal(w.eval('guestInvitationToken'),null);assert.equal(requests.some(r=>r.includes(credential)),false);assert.equal(d.querySelector('#guestPanel [href="/auth/start"]'),null);assert.equal(d.querySelector('#guestPanel a[href="/guest/logout"]').textContent,'Sign out');
  assert.equal(w.localStorage.getItem('j365_spa_events_v2'),'OWNER-PRIVATE-SENTINEL');assert.equal(w.eval('read().length'),4);assert.equal(requests.includes('/api/config'),false);assert.equal(requests.includes('/api/months'),false);
  for(const b of d.querySelectorAll('.tabs [data-tab]'))if(!['chemistry','trends'].includes(b.dataset.tab))assert.equal(b.hidden,true);

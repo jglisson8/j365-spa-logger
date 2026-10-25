@@ -138,7 +138,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.58.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.59.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -1792,7 +1792,7 @@ function setupStripTesting(){
   update();
 }
 function guestPage(){return typeof location!=='undefined'&&location.pathname==='/guest';}
-let guestContext=null,guestPending=null,guestBusy=false,guestCorrection=null,guestBaseline=null;
+let guestContext=null,guestPending=null,guestBusy=false,guestConnecting=false,guestCorrection=null,guestBaseline=null;
 function guestSignature(){return $('guestForm')?JSON.stringify([...$('guestForm').querySelectorAll('input,select')].map(e=>[e.id,e.value,e.checked])):null;}
 function guestStatus(message){if($('guestStatus'))$('guestStatus').textContent=message;}
 async function guestRemove(id){
@@ -1801,11 +1801,20 @@ async function guestRemove(id){
  try{const event={id:crypto.randomUUID(),type:'remove',timestamp:old.timestamp,timestamp_instant:old.timestamp_instant,supersedes_event_id:old.id};await api('/api/guest/entries',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify({event})});await connectGuest();guestStatus('Entry removed.');}catch(e){guestStatus(e.message);}finally{guestBusy=false;}
 }
 async function connectGuest(){
+ if(guestConnecting)return false;guestConnecting=true;
  const clean=!guestContext||guestBaseline===guestSignature();
  try{
-  if(guestInvitationToken){await api('/api/guest/redeem',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({invitation:guestInvitationToken})});guestInvitationToken=null;}
+  // Startup invokes connect before the generated guest panel is mounted.
+  await Promise.resolve();
+  $('guestActivate').disabled=true;
+  if(guestInvitationToken){
+   $('guestActivation').hidden=false;$('guestForm').hidden=true;
+   await api('/api/guest/prepare',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+   await api('/api/guest/redeem',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({invitation:guestInvitationToken,access_code:$('guestAccessCode').value.trim()})});guestInvitationToken=null;$('guestAccessCode').value='';
+  }
   session=await api('/api/guest/me');if(session.role!=='guest')throw Error('Open your guest invitation link.');
   const data=await api('/api/guest/context');guestContext=data;config=data.config;write(data.events);render();
+  $('guestActivation').hidden=true;$('guestForm').hidden=false;
   $('identity').textContent='Guest · '+data.user;$('syncState').textContent='Connected';
   $('guestInstructions').textContent=data.instructions||'Record strip tests, soaks and completed doses. Forecasts are approximate, not acid-dose instructions.';
   $('guestExpiry').textContent='Access ends '+SpaTime.format(Date.parse(data.expires_at),{dateStyle:'medium',timeStyle:'short'});
@@ -1817,7 +1826,7 @@ async function connectGuest(){
   guestStatus('Connected. Guest logging requires internet; private history is not saved on this device.');
   if(clean)guestBaseline=guestSignature();
   return true;
- }catch(error){session=null;guestContext=null;write([]);if(typeof chartViewer!=='undefined'&&chartViewer.open)chartViewer.close();render();$('identity').textContent='Guest access';$('syncState').textContent='Invitation required';guestStatus(error.status===401?'Open the invitation link sent by the spa owner. No GitHub account is needed.':error.message);return false;}
+ }catch(error){session=null;guestContext=null;$('guestForm').hidden=true;write([]);if(typeof chartViewer!=='undefined'&&chartViewer.open)chartViewer.close();render();$('identity').textContent='Guest access';$('syncState').textContent='Invitation required';guestStatus(error.status===401?'Open the invitation link sent by the spa owner. No GitHub account is needed.':error.message);return false;}finally{guestConnecting=false;$('guestActivate').disabled=false;}
 }
 function guestInput(){
  const ts=$('guestAt').value,type=$('guestKind').value,event={id:guestPending?.id||crypto.randomUUID(),type,timestamp:ts,timestamp_instant:SpaTime.metadata(ts).timestamp_instant};
@@ -1839,6 +1848,8 @@ function setupGuestMode(){
  document.addEventListener('click',e=>{if(e.target.closest('[data-edit-chart-bound],[data-bound-key],[data-edit],[data-remove-record],[data-restore-record]')){e.preventDefault();e.stopImmediatePropagation();}},true);
  syncMonths=async()=>{};syncConfig=async()=>{};save=()=>{throw Error('Use the guest form to record an activity.');};
  const panel=document.createElement('section');panel.id='guestPanel';panel.innerHTML='<h2>Guest water care</h2><p id="guestExpiry" class="help"></p><p id="guestInstructions"></p><p id="guestStatus" role="status">Connecting…</p><button id="guestRefresh" type="button" class="secondary">Refresh status &amp; trends</button> <a href="/guest/logout">Sign out</a><form id="guestForm"><label for="guestKind">Record</label><select id="guestKind"><option value="chemistry">Strip test</option><option value="soak">Soak</option><option value="chemical_addition">Bleach / pH adjustment</option></select><label for="guestAt">When · Mountain time</label><input id="guestAt" type="datetime-local" required><div id="guestTest">'+Object.entries(STRIP_PROFILE.blocks).map(([k,values])=>'<label for="guest-'+k+'">'+({fc_ppm:'FC · ppm',ph:'pH',ta_ppm:'TA · ppm'}[k])+'</label><select id="guest-'+k+'"><option value="">Not tested</option>'+values.map(v=>'<option>'+v+'</option>').join('')+'</select>').join('')+'<p class="help">Choose the AQUANEXO block. Results and forecasts retain approximate ranges.</p></div><div id="guestSoak" hidden><label for="guestBathers">Bathers</label><input id="guestBathers" type="number" min="1" max="6" value="1"><label for="guestMinutes">Minutes</label><input id="guestMinutes" type="number" min="1" max="180" value="15"><label class="inline"><input id="guestShowered" type="checkbox" checked>Showered beforehand</label><label for="guestAir">Jets / air</label><select id="guestAir"><option value="air_on">Air controls open</option><option value="water_only">Air controls closed</option><option value="off">Jets off</option></select></div><div id="guestDose" hidden><label for="guestProduct">Approved product</label><select id="guestProduct"></select><label for="guestAmount">Amount actually added</label><input id="guestAmount" type="number" min="0" step="any"><label for="guestUnit">Unit</label><select id="guestUnit"><option>cup</option><option>tbsp</option><option>tsp</option><option>fl oz</option><option>mL</option></select><p class="help">Follow the owner’s instructions. This records an actual dose, not a recommendation.</p></div><button id="guestSubmit" class="primary">Save entry</button><button id="guestCancel" class="secondary" type="button" hidden>Cancel correction</button></form><h3>Your recent entries</h3><div id="guestOwnEntries"></div>';
+ const activation=document.createElement('form');activation.id='guestActivation';activation.hidden=true;activation.innerHTML='<label for="guestAccessCode">Access code</label><input id="guestAccessCode" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required><p class="help">Paste the code supplied separately by the owner. First activation locks this invitation to this browser. Switching browsers or clearing cookies requires an owner reset.</p><button class="primary" id="guestActivate">Activate this browser</button>';panel.querySelector('#guestForm').before(activation);
+ activation.onsubmit=async e=>{e.preventDefault();if(guestBusy)return;guestBusy=true;$('guestActivate').disabled=true;try{await connectGuest();}finally{guestBusy=false;$('guestActivate').disabled=false;}};
  $('tab-chemistry').prepend(panel);$('guestAt').value=localNow();
  const kind=()=>{for(const [id,type]of [['guestTest','chemistry'],['guestSoak','soak'],['guestDose','chemical_addition']])$(id).hidden=$('guestKind').value!==type;};$('guestKind').onchange=kind;
  const clear=()=>{guestCorrection=null;guestPending=null;$('guestSubmit').textContent='Save entry';$('guestCancel').hidden=true;};$('guestCancel').onclick=clear;
@@ -1857,6 +1868,8 @@ function setupGuestManagement(){
  const box=document.createElement('details');box.id='guestManagement';
  box.innerHTML='<summary>Guest invitations</summary><p class="help">No account needed. Each private link allows strip tests, soaks, approved additions and read-only Trends during its access window.</p><button type="button" class="secondary" id="guestLoadAccess">Load invitations</button> <button type="button" class="secondary" id="guestCheckBackend">Check guest connection</button><p id="guestManageStatus" role="status"></p><div id="guestGrantList"></div><div id="guestLinkPanel" hidden><label for="guestInviteLink">New private invitation link</label><input id="guestInviteLink" readonly autocomplete="off" spellcheck="false"><button type="button" class="secondary" id="guestCopyInvite">Copy invitation link</button><p class="help">Treat this link like a password. Anyone holding it has this guest’s access. Copy and send privately; the link cannot be retrieved after leaving/reloading. Revoke and create another if lost.</p></div><form id="guestGrantForm" hidden><label for="guestName">Guest name</label><input id="guestName" maxlength="100" required autocomplete="off"><label for="guestStart">Access starts · Mountain time</label><input id="guestStart" type="datetime-local" required><label for="guestEnd">Access ends · Mountain time</label><input id="guestEnd" type="datetime-local" required><label for="guestOwnerInstructions">Instructions</label><textarea id="guestOwnerInstructions" maxlength="2000"></textarea><p class="help">Optional product caps are permission limits, not recommended doses. Leave unchecked for tests and soaks only.</p>'+['bleach','acid'].map(role=>'<label class="inline"><input id="guestAllow-'+role+'" type="checkbox">Allow current '+role+' product</label><div class="three"><div><label for="guestSingle-'+role+'">Maximum per addition</label><input id="guestSingle-'+role+'" type="number" min="0.000001" step="any"></div><div><label for="guestDaily-'+role+'">Maximum in 24 hours</label><input id="guestDaily-'+role+'" type="number" min="0.000001" step="any"></div><div><label for="guestLimitUnit-'+role+'">Unit for both limits</label><select id="guestLimitUnit-'+role+'">'+['cup','tbsp','tsp','fl oz','mL'].map(u=>'<option'+(u===(role==='bleach'?'cup':'tbsp')?' selected':'')+'>'+u+'</option>').join('')+'</select></div></div>').join('')+'<button class="primary">Create invitation link</button></form>';
  $('tab-maintenance').append(box);
+ const codeLabel=document.createElement('label');codeLabel.htmlFor='guestInviteCode';codeLabel.textContent='Separate access code · shown once';const code=document.createElement('input');code.id='guestInviteCode';code.readOnly=true;code.autocomplete='off';code.spellcheck=false;const copyCode=document.createElement('button');copyCode.id='guestCopyCode';copyCode.type='button';copyCode.className='secondary';copyCode.textContent='Copy access code';$('guestLinkPanel').append(codeLabel,code,copyCode);
+ $('guestLinkPanel').querySelector('.help').textContent='Send the link privately and provide the access code separately. First activation locks it to one browser, not a physical phone. Both are shown only once. Use Reset browser if lost, switching browsers, or cookies are cleared.';
  let remote=null,busy=false;const status=m=>$('guestManageStatus').textContent=m;
  const dirty=appHasUnsavedWork;appHasUnsavedWork=function(){return dirty()||[...$('guestGrantForm').querySelectorAll('input,textarea,select')].some(e=>e.type==='checkbox'?e.checked!==e.defaultChecked:e.tagName==='SELECT'?e.selectedIndex!==[...e.options].findIndex(o=>o.defaultSelected):e.value!==e.defaultValue);};
  $('guestCheckBackend').onclick=async()=>{try{const result=await api('/api/guests/check');status(result.ok?'Repository connection verified. '+(result.backend_enabled?'Ready for owner-created invitations.':'Guest access is disabled in Cloudflare.'):'Connection not ready.');}catch(e){status(e.status===404?'Invitation Worker deployment is still required.':e.message);}};
@@ -1866,14 +1879,18 @@ function setupGuestManagement(){
    remote=await api('/api/guests');$('guestGrantForm').hidden=false;
    status(remote.backend_enabled&&remote.backend_configured?'Ready. Only guests you explicitly invite can access the app.':'Guest connection is disabled or not configured. Check the connection first.');
    $('guestGrantList').innerHTML=remote.policy.grants.map(g=>'<div class="entry"><strong>'+esc(g.label||g.login)+'</strong><small>'+esc(SpaTime.format(Date.parse(g.starts_at),{dateStyle:'medium',timeStyle:'short'}))+' → '+esc(SpaTime.format(Date.parse(g.ends_at),{dateStyle:'medium',timeStyle:'short'}))+' · '+(g.revoked?'Revoked':Date.now()>=Date.parse(g.ends_at)?'Expired':Date.now()<Date.parse(g.starts_at)?'Scheduled':'Active')+'</small>'+(g.revoked?'':' <button type="button" class="secondary" data-revoke-guest="'+esc(g.id)+'">Revoke access</button>')+'</div>').join('')||'<p class="help">No guests authorized.</p>';
+   for(const g of remote.policy.grants){const revoke=$('guestGrantList').querySelector('[data-revoke-guest="'+g.id+'"]');if(g.auth_type==='invite'&&revoke&&Date.parse(g.ends_at)>Date.now()){const state=document.createElement('small');state.textContent=g.single_device?(g.activated_at?'Browser activated':'Awaiting browser activation'):'Legacy reusable link · reset to secure';const reset=document.createElement('button');reset.type='button';reset.className='secondary';reset.dataset.resetGuest=g.id;reset.textContent='Reset browser';revoke.parentElement.append(state,reset);}}
   }catch(e){status(e.status===404?'Invitation Worker deployment is required. Your owner app is unchanged.':e.message);}
  };
  const persist=async policy=>{await api('/api/guests',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify({sha:remote.sha,policy})});await load();};
  $('guestLoadAccess').onclick=load;
  $('guestCopyInvite').onclick=async()=>{try{await navigator.clipboard.writeText($('guestInviteLink').value);status('Private invitation copied. Send it directly to this guest.');}catch{$('guestInviteLink').focus();$('guestInviteLink').select();status('Select and copy the invitation link above.');}};
+ $('guestCopyCode').onclick=async()=>{try{await navigator.clipboard.writeText($('guestInviteCode').value);status('Access code copied. Supply separately from the invitation link.');}catch{$('guestInviteCode').focus();$('guestInviteCode').select();status('Select and copy the access code above.');}};
+ const showInvite=result=>{$('guestInviteLink').value=result.invitation_url;$('guestInviteCode').value=result.access_code||'';$('guestLinkPanel').hidden=false;};
  $('guestGrantList').onclick=async e=>{
+  const reset=e.target.closest('[data-reset-guest]');if(reset){if(busy||!confirm('Reset this browser activation? Existing sessions and old links/codes will stop working. Send the new link and code to the guest.'))return;busy=true;try{const result=await api('/api/guests/reset',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify({sha:remote.sha,id:reset.dataset.resetGuest})});showInvite(result);await load();status('Browser reset. Copy the new link and code; previous access is invalid.');}catch(e){status(e.message+' Reload invitations before retrying an interrupted reset.');}finally{busy=false;}return;}
   const b=e.target.closest('[data-revoke-guest]');if(!b||busy||!confirm('Revoke this guest’s access immediately, including already-open sessions?'))return;busy=true;
-  try{await persist({...remote.policy,grants:remote.policy.grants.map(g=>g.id===b.dataset.revokeGuest?{...g,revoked:true}:g)});$('guestInviteLink').value='';$('guestLinkPanel').hidden=true;status('Guest access revoked.');}catch(e){status(e.message);}finally{busy=false;}
+  try{await persist({...remote.policy,grants:remote.policy.grants.map(g=>g.id===b.dataset.revokeGuest?{...g,revoked:true}:g)});$('guestInviteLink').value='';$('guestInviteCode').value='';$('guestLinkPanel').hidden=true;status('Guest access revoked.');}catch(e){status(e.message);}finally{busy=false;}
  };
  $('guestGrantForm').onsubmit=async e=>{
   e.preventDefault();if(busy||!remote)return;busy=true;const button=e.currentTarget.querySelector('button');button.disabled=true;
@@ -1887,7 +1904,7 @@ function setupGuestManagement(){
    }
    const invitation={label:$('guestName').value.trim(),starts_at:SpaTime.metadata($('guestStart').value).timestamp_instant,ends_at:SpaTime.metadata($('guestEnd').value).timestamp_instant,products,instructions:$('guestOwnerInstructions').value};
    const result=await api('/api/guests/invitations',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify({sha:remote.sha,invitation})});
-   $('guestInviteLink').value=result.invitation_url;$('guestLinkPanel').hidden=false;e.target.reset();await load();status('Invitation created. Copy the private link above; no GitHub account is needed.');
+   showInvite(result);e.target.reset();await load();status('Invitation created. Copy the link and separate code. Only the first browser can activate; no GitHub account is needed.');
   }catch(e){status(e.message+' If creation was interrupted, load invitations and revoke any unwanted entry before trying again.');}finally{busy=false;button.disabled=false;}
  };
 }

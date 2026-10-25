@@ -13,10 +13,12 @@ function guestPolicy(value){
   if(value.schema_version!==1||!Array.isArray(value.grants)||value.grants.length>20)guestFail('Invalid guest access list');
   const ids=new Set();
   for(const g of value.grants){
-    guestKeys(g,['id','user_id','login','auth_type','label','invite_hash','starts_at','ends_at','revoked','products','instructions']);
+    guestKeys(g,['id','user_id','login','auth_type','label','invite_hash','code_hash','single_device','device_hash','activated_at','starts_at','ends_at','revoked','products','instructions']);
     if(!/^[-a-zA-Z0-9_]{8,100}$/.test(g.id)||ids.has(g.id))guestFail('Invalid guest identity');ids.add(g.id);
     if(g.auth_type==='invite'){
       if(typeof g.label!=='string'||!g.label.trim()||g.label.length>100||!/^[A-Za-z0-9_-]{43}$/.test(g.invite_hash)||g.user_id!=null||g.login!=null)guestFail('Invalid invitation identity');
+      if(g.single_device!==undefined&&(g.single_device!==true||!/^[A-Za-z0-9_-]{43}$/.test(g.code_hash)||!(g.device_hash===null||/^[A-Za-z0-9_-]{43}$/.test(g.device_hash))||!(g.activated_at===null||Number.isFinite(guestEpoch(g.activated_at)))||!!g.device_hash!==!!g.activated_at))guestFail('Invalid browser activation');
+      if(!g.single_device&&(g.code_hash!==undefined||g.device_hash!==undefined||g.activated_at!==undefined))guestFail('Invalid browser activation');
     }else if(g.auth_type!=null||!Number.isSafeInteger(g.user_id)||g.user_id<=0||typeof g.login!=='string'||!/^[-a-zA-Z0-9]{1,39}$/.test(g.login))guestFail('Invalid guest identity');
     const start=guestEpoch(g.starts_at),end=guestEpoch(g.ends_at);if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>90*86400000||typeof g.revoked!=='boolean')guestFail('Choose a guest access window of at most 90 days');
     if(typeof g.instructions!=='string'||g.instructions.length>2000||!Array.isArray(g.products)||g.products.length>2)guestFail('Invalid guest instructions');
@@ -61,37 +63,63 @@ async function guestGrant(identity,env){
   const invite=identity.auth_type==='invite';if(invite&&env.GUEST_ACCESS_ENABLED==='false')guestFail('Guest access is disabled',403);
   const token=await guestInstallationToken(env,invite),file=await readRepoJson(GUEST_ACCESS_FILE,token,true),policy=guestPolicy(file.value||{schema_version:1,grants:[]});
   const now=Date.now(),grant=policy.grants.find(g=>g.id===identity.grant_id&&(invite?g.auth_type==='invite'&&g.invite_hash===identity.invite_revision&&identity.user_id==='invite:'+g.id:g.auth_type!=='invite'&&g.user_id===identity.user_id)&&!g.revoked&&guestEpoch(g.starts_at)<=now&&now<guestEpoch(g.ends_at));
-  if(!grant)guestFail('Guest access is inactive, expired or revoked',403);return {grant,token};
+  if(!grant)guestFail('Guest access is inactive, expired or revoked',403);
+  if(grant.single_device&&(!identity.device_hash||identity.device_hash!==grant.device_hash))guestFail('This invitation is activated in another browser. Ask the owner to reset access.',403);
+  return {grant,token};
 }
 async function guestIdentity(req,env){
   let s;try{s=await unseal(getCookie(req,'__Host-j365-guest')||getCookie(req,'__Host-j365'),env);}catch{guestFail('Open your guest invitation link',401);}
   if(s.role!=='guest'||!(s.auth_type==='invite'?typeof s.user_id==='string'&&s.user_id==='invite:'+s.grant_id:!!s.token&&Number.isSafeInteger(s.user_id))||!Number.isFinite(s.until)||s.until<=Date.now())guestFail('Open your guest invitation link',401);
+  if(s.auth_type==='invite')s.device_hash=await guestInviteDigest(getCookie(req,'__Host-j365-device'));
   const access=await guestGrant(s,env);return {...s,...access,user:access.grant.label??s.user};
 }
 const guestCookie=(value,age)=>`__Host-j365-guest=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${age}`;
 async function guestInviteDigest(secret){return b64url(new Uint8Array(await crypto.subtle.digest('SHA-256',te.encode(secret))));}
-function guestSafeGrant(g){return g.auth_type==='invite'?Object.fromEntries(Object.entries(g).filter(([k])=>k!=='invite_hash')):g;}
+function guestSafeGrant(g){return g.auth_type==='invite'?Object.fromEntries(Object.entries(g).filter(([k])=>!['invite_hash','code_hash','device_hash'].includes(k))):g;}
 async function guestInvitationRoutes(req,env,url){
   if(url.pathname==='/guest/logout'&&req.method==='GET')return redirect('/guest',guestCookie('',0));
-  if(url.pathname==='/api/guests/invitations'&&req.method==='POST'){
+  // Establish the browser cookie BEFORE consuming an invitation. A lost redeem
+  // response can then be retried in the same browser without locking it out.
+  if(url.pathname==='/api/guest/prepare'&&req.method==='POST'){
+    if(req.headers.get('Origin')!==url.origin)guestFail('Invalid origin',403);
+    const existing=getCookie(req,'__Host-j365-device'),device=/^[A-Za-z0-9_-]{43}$/.test(existing)?existing:random(32);
+    return json({ok:true},200,{'Set-Cookie':`__Host-j365-device=${device}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=7776000`});
+  }
+  if(['/api/guests/invitations','/api/guests/reset'].includes(url.pathname)&&req.method==='POST'){
     const owner=await requireSession(req,env);requireWriteAuth(req,url,owner);
-    const body=await parseJsonBody(req,30000);guestKeys(body,['sha','invitation']);guestKeys(body.invitation,['label','starts_at','ends_at','products','instructions']);
+    const resetting=url.pathname==='/api/guests/reset',body=await parseJsonBody(req,30000);guestKeys(body,resetting?['sha','id']:['sha','invitation']);if(!resetting)guestKeys(body.invitation,['label','starts_at','ends_at','products','instructions']);
     const file=await readRepoJson(GUEST_ACCESS_FILE,owner.token,true);if(body.sha!==file.sha)guestFail('Guest settings changed; reload before creating an invitation',409);
-    const policy=guestPolicy(file.value||{schema_version:1,grants:[]}),secret=random(32),grant={...body.invitation,id:crypto.randomUUID(),auth_type:'invite',invite_hash:await guestInviteDigest(secret),revoked:false};
-    guestPolicy({schema_version:1,grants:[...policy.grants,grant]});
-    const sha=await writeRepoJson(GUEST_ACCESS_FILE,owner.token,{schema_version:1,grants:[...policy.grants,grant]},file.sha,'Create expiring spa guest invitation');
+    const policy=guestPolicy(file.value||{schema_version:1,grants:[]}),prior=resetting?policy.grants.find(g=>g.id===body.id&&g.auth_type==='invite'&&!g.revoked):null;
+    if(resetting&&(!prior||guestEpoch(prior.ends_at)<=Date.now()))guestFail('Only an unrevoked, unexpired invitation can be reset');
+    const secret=random(32),code=random(12),grant={...(prior||body.invitation),id:prior?.id||crypto.randomUUID(),auth_type:'invite',invite_hash:await guestInviteDigest(secret),single_device:true,code_hash:await guestInviteDigest(code),device_hash:null,activated_at:null,revoked:false};
+    const next=guestPolicy({schema_version:1,grants:resetting?policy.grants.map(g=>g.id===grant.id?grant:g):[...policy.grants,grant]});
+    const sha=await writeRepoJson(GUEST_ACCESS_FILE,owner.token,next,file.sha,resetting?'Reset spa guest browser activation':'Create expiring spa guest invitation');
     // Only the hash is stored on GitHub. The raw link is returned once, no-store.
-    return json({ok:true,sha,grant:guestSafeGrant(grant),invitation_url:url.origin+'/guest#invite='+grant.id+'.'+secret});
+    return json({ok:true,sha,grant:guestSafeGrant(grant),access_code:code,invitation_url:url.origin+'/guest#invite='+grant.id+'.'+secret});
   }
   if(url.pathname==='/api/guest/redeem'&&req.method==='POST'){
     if(req.headers.get('Origin')!==url.origin)guestFail('Invalid origin',403);
     if(!req.headers.get('Content-Type')?.toLowerCase().startsWith('application/json'))guestFail('Content-Type must be application/json',415);
     if(env.GUEST_ACCESS_ENABLED==='false')guestFail('Guest access is disabled',403);
-    const body=await parseJsonBody(req,1000);guestKeys(body,['invitation']);
+    const body=await parseJsonBody(req,1000);guestKeys(body,['invitation','access_code']);
     const match=typeof body.invitation==='string'&&body.invitation.match(/^([-a-zA-Z0-9_]{8,100})\.([A-Za-z0-9_-]{43})$/);if(!match)guestFail('Invitation is invalid or inactive',403);
     const token=await guestInstallationToken(env,true),file=await readRepoJson(GUEST_ACCESS_FILE,token,true),policy=guestPolicy(file.value||{schema_version:1,grants:[]}),hash=await guestInviteDigest(match[2]),now=Date.now();
     const grant=policy.grants.find(g=>g.auth_type==='invite'&&g.id===match[1]&&g.invite_hash===hash&&!g.revoked&&guestEpoch(g.starts_at)<=now&&now<guestEpoch(g.ends_at));
     if(!grant)guestFail('Invitation is invalid, not yet active, expired or revoked',403);
+    if(grant.single_device){
+      // A random 96-bit code avoids the brute-force weakness of short numeric
+      // PINs without depending on per-isolate counters or new infrastructure.
+      if(typeof body.access_code!=='string'||await guestInviteDigest(body.access_code.trim())!==grant.code_hash)guestFail('Enter the access code supplied separately by the owner.',403);
+      const device=getCookie(req,'__Host-j365-device');if(!/^[A-Za-z0-9_-]{43}$/.test(device))guestFail('Enable browser cookies and try activation again.',400);
+      const hash=await guestInviteDigest(device);
+      if(grant.device_hash&&grant.device_hash!==hash)guestFail('This invitation is already activated in another browser. Ask the owner to reset access.',403);
+      if(!grant.device_hash){
+        grant.device_hash=hash;grant.activated_at=new Date(now).toISOString();
+        // GitHub's SHA compare-and-swap makes the claim exclusive across Worker
+        // isolates. A competing claim cannot receive a session cookie.
+        try{await writeRepoJson(GUEST_ACCESS_FILE,token,policy,file.sha,'Activate spa guest browser');}catch(e){if(e.status===409||e.status===422)guestFail('Activation changed. Retry in this browser; ask the owner to reset if already claimed.',409);throw e;}
+      }
+    }
     const until=guestEpoch(grant.ends_at),cookie=await seal({role:'guest',auth_type:'invite',user:grant.label,user_id:'invite:'+grant.id,grant_id:grant.id,invite_revision:grant.invite_hash,until,csrf:random(24)},env);
     return json({ok:true,user:grant.label,expires_at:grant.ends_at},200,{'Set-Cookie':guestCookie(cookie,Math.max(1,Math.floor((until-now)/1000)))});
   }
@@ -183,7 +211,7 @@ async function guestRoutes(req,env,url){
       const previous=guestPolicy(saved.value||{schema_version:1,grants:[]});if(!isObject(body.policy)||!Array.isArray(body.policy.grants))guestFail('Invalid guest settings');
       const policy=guestPolicy({...body.policy,grants:body.policy.grants.map(g=>{
         if(g.auth_type!=='invite')return g;const prior=previous.grants.find(p=>p.id===g.id&&p.auth_type==='invite');if(!prior)guestFail('Create new invitations using the invitation action');
-        if(g.invite_hash!=null)guestFail('Invitation hashes cannot be supplied by clients');return {...g,invite_hash:prior.invite_hash};
+        if(['invite_hash','code_hash','device_hash'].some(k=>g[k]!=null)||g.single_device!==prior.single_device||g.activated_at!==prior.activated_at)guestFail('Activation settings can only be changed using Reset browser');return {...g,invite_hash:prior.invite_hash,...(prior.single_device?{code_hash:prior.code_hash,device_hash:prior.device_hash}: {})};
       })});
       // Pin immutable numeric identity and check supplied login. Never authorize by mutable login alone.
       for(const g of policy.grants){if(g.auth_type==='invite')continue;const user=await github('/users/'+encodeURIComponent(g.login),owner.token);if(user.id!==g.user_id||user.type!=='User')guestFail('Guest GitHub identity did not match');}
