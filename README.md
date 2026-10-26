@@ -17,6 +17,18 @@ The canonical timezone helper is `src/spa-time.js`. After editing it, run `npm r
 
 See [reliability audit and release notes](docs/reliability-6.50.md), [execution order](docs/execution-order.md), [product library](docs/product-library.md), and [chemistry regression notes](tests/README.md).
 
+## Top-off source-water fallback (v6.63.1)
+
+Entered top-off source TA takes priority, including zero. If missing, the model
+uses recorded source TA on the same fill, otherwise the earliest non-strip TA
+within three calendar days of that fill, before known acid/bicarbonate treatment.
+The latter is labeled an approximate initial-fill source proxy, with its event
+ID retained in the resolver; it is not a new measurement or training pair.
+No future or previous-fill reading is used. Without a usable baseline, the
+existing pause remains. FC still defaults to zero, never a chlorinated fill test.
+pH is not arithmetically averaged. Original events and saved forecast reviews
+are unchanged; current projections recompute from the new assumption.
+
 ## Temporary guest access (beta)
 
 See [guest invitations](docs/guest-invitations-6.58.0.md). Guests use expiring
