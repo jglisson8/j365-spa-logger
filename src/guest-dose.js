@@ -87,6 +87,7 @@ function refreshGuestDoseAdvice(){
   if($('guestAmount').value&&Number($('guestAmount').value)!==amount&&!confirm('Replace the entered amount with this suggestion? Nothing is saved yet.'))return;
   $('guestAmount').value=amount;guestPending=null;$('guestConfirmAdded').checked=false;$('guestConfirmAdded').required=true;$('guestConfirmRow').hidden=false;
   guestStatus('Amount filled in—not saved. Add the dose, confirm the actual amount, then Save.');
+  if(typeof refreshGuestWorkflow==='function')refreshGuestWorkflow();
  };
  box.prepend(quantity,context);box.append(use);
 }
