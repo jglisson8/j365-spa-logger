@@ -8,6 +8,8 @@ function server(h,initial=seed(),fail=()=>false){let remote=clone(initial),posts
  let h=device(),s=server(h,{...seed(),targets:{cya_ppm:35},unrelated:'new setting'});
  h.run('stageConfigField("current_fill_cycle_id","fill-local");config=applyPendingConfig(config);writeConfigState(config,true)');
  assert.ok(await h.run('syncConfig()'));assert.equal(s.remote().unrelated,'new setting');assert.equal(s.remote().targets.cya_ppm,35);assert.equal(s.remote().current_fill_cycle_id,'fill-local');
+ h=device();s=server(h,{...seed(),unrelated:'keep'});h.run('stageConfigField("source_water",{schema_version:1,mode:"average"});config=applyPendingConfig(config);writeConfigState(config,true)');assert.ok(await h.run('syncConfig()'));assert.equal(s.remote().source_water.mode,'average');assert.equal(s.remote().unrelated,'keep');
+ h=device({...seed(),source_water:{schema_version:1,mode:'latest'}});s=server(h,{...seed(),source_water:{schema_version:1,mode:'average'}});h.run('stageConfigField("source_water",{schema_version:1,mode:"latest"})');assert.equal(await h.run('syncConfig()'),false);assert.equal(s.posts(),0);await h.run('resolveConfigConflict("general:source_water","remote")');assert.equal(h.run('config.source_water.mode'),'average');
  // Same-field changes preserve both values, survive reload and require a choice.
  h=device();s=server(h,{...seed(),current_fill_cycle_id:'fill-other'});h.run('stageConfigField("current_fill_cycle_id","fill-local");config=applyPendingConfig(config);writeConfigState(config,true)');
  assert.equal(await h.run('syncConfig()'),false);assert.equal(s.posts(),0);assert.equal(h.run('configConflicts["general:current_fill_cycle_id"].remote.value'),'fill-other');

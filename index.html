@@ -110,8 +110,13 @@
 <script>
 // Guest trend context is memory-only; never load owner records on /guest.
 // Capture and remove invitation fragments before startup makes any requests.
+const GUEST_PRACTICE=typeof location!=='undefined'&&location.pathname==='/guest'&&new URLSearchParams(location.search).get('practice')==='1';
+// Install before weather/startup hooks: practice never reaches a real API,
+// including background calls, owner sync or accidental invitation activation.
+if(GUEST_PRACTICE)globalThis.fetch=(path,options={})=>Promise.resolve().then(()=>guestPracticeFetch(path,options));
 let guestInvitationToken=typeof location!=='undefined'&&location.pathname==='/guest'?new URLSearchParams(location.hash.slice(1)).get('invite'):null;
-if(typeof location!=='undefined'&&location.pathname==='/guest'&&location.hash)history.replaceState(null,'','/guest');
+if(GUEST_PRACTICE)guestInvitationToken=null;
+if(typeof location!=='undefined'&&location.pathname==='/guest'&&location.hash)history.replaceState(null,'',GUEST_PRACTICE?'/guest?practice=1':'/guest');
 const localStorage=typeof location!=='undefined'&&location.pathname==='/guest'?(()=>{const data=new Map();return {getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,String(v)),removeItem:k=>data.delete(k)};})():globalThis.localStorage;
 // BEGIN GENERATED SPA TIME
 /* Pure spa-clock boundary. Calendar anchors are display/order aids, never samples. */
@@ -138,7 +143,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.63.1',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.64.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -159,8 +164,8 @@ function setConfigValue(value,path,state){const out=configClone(value||{});let a
 function readSyncJSON(key,fallback){try{return JSON.parse(localStorage.getItem(key)||'null')??fallback}catch{return fallback}}
 let configBaseline=savedConfigState?.baseline??(savedConfigState?.pending?null:savedConfigState?.config??null),generalPatch=readSyncJSON(CONFIG_PATCH_KEY,{}),configConflicts=readSyncJSON(CONFIG_CONFLICT_KEY,{}),generalSyncing=null;
 function saveSyncQueues(){localStorage.setItem(CONFIG_PATCH_KEY,JSON.stringify(generalPatch));localStorage.setItem(CONFIG_CONFLICT_KEY,JSON.stringify(configConflicts))}
-function stageConfigField(key,value,base=config){if(key!=='current_fill_cycle_id')throw Error('Unsupported configuration field');generalPatch[key]={value:configClone(value),base:generalPatch[key]?.base??(base?configValue(base,[key]):{known:false})};configPending=true;saveSyncQueues()}
-function applyGeneralPatch(value){let result=value;for(const [key,entry]of Object.entries(generalPatch))if(key==='current_fill_cycle_id')result=setConfigValue(result,[key],desiredConfig(entry.value));return result}
+function stageConfigField(key,value,base=config){if(!['current_fill_cycle_id','source_water'].includes(key))throw Error('Unsupported configuration field');generalPatch[key]={value:configClone(value),base:generalPatch[key]?.base??(base?configValue(base,[key]):{known:false})};configPending=true;saveSyncQueues()}
+function applyGeneralPatch(value){let result=value;for(const [key,entry]of Object.entries(generalPatch))if(['current_fill_cycle_id','source_water'].includes(key))result=setConfigValue(result,[key],desiredConfig(entry.value));return result}
 function applyPendingConfig(value){return applyGeneralPatch(applyProductPatch(applyServicePatch(value,servicePatch),productPatch))}
 function conflictId(scope,key){return scope+':'+key}
 function guardConfigField(scope,key,path,base,value,remote){const actual=configValue(remote,path),desired=desiredConfig(value),compatible=sameConfig(actual,desired)||base?.known&&sameConfig(actual,base);if(!compatible){const id=conflictId(scope,key);configConflicts[id]={scope,key,path,base:configClone(base??{known:false}),local:desired,remote:actual,detected_at:new Date().toISOString()};saveSyncQueues();renderConfigConflicts();throw Object.assign(Error('Settings conflict: open Service → Sync conflicts to choose which value to keep.'),{code:'CONFIG_CONFLICT'})}const previous=configConflicts[conflictId(scope,key)];if(previous&&!previous.resolved){previous.resolved='remote compatible';saveSyncQueues()}return actual}
@@ -178,7 +183,7 @@ async function resolveConfigConflict(id,choice){const c=configConflicts[id];if(!
 }
 function setupConfigConflicts(){if(!document.querySelector)return;const panel=document.createElement('details');panel.id='configConflictPanel';panel.className='calcbox';panel.innerHTML='<summary>Sync conflicts</summary><p class="help">Both values are preserved here. Nothing overwrites the other device until you choose. Keeping your change rebases it onto the saved version; a further competing change will ask again.</p><div id="configConflictList"></div>';$('tab-maintenance').appendChild(panel);panel.addEventListener('click',e=>{const b=e.target.closest('[data-conflict-choice]');if(b)resolveConfigConflict(b.dataset.conflictId,b.dataset.conflictChoice)});const shortcut=document.createElement('button');shortcut.id='configConflictShortcut';shortcut.type='button';shortcut.className='secondary';shortcut.textContent='Resolve sync conflict';shortcut.hidden=true;shortcut.onclick=()=>{setTab('maintenance');panel.open=true;panel.scrollIntoView?.({behavior:'smooth',block:'start'})};$('headerMaintenance').appendChild(shortcut);const before=render;render=function(){before();renderConfigConflicts()};renderConfigConflicts();}
 async function syncConfig(retry=true){if(generalSyncing)return generalSyncing;if(!session||!config)return false;if(configPending&&!Object.keys(generalPatch).length)stageConfigField('current_fill_cycle_id',config.current_fill_cycle_id??null,configBaseline);if(!Object.keys(generalPatch).length)return true;
- generalSyncing=(async()=>{try{let attempts=0,sha;while(Object.keys(generalPatch).length&&attempts++<(retry?3:1)){const sent=configClone(generalPatch),remote=await api('/api/config');let candidate=remote.config;for(const [key,entry]of Object.entries(sent)){if(key!=='current_fill_cycle_id')throw Error('Unsupported pending config field');guardConfigField('general',key,[key],entry.base,entry.value,remote.config);candidate=setConfigValue(candidate,[key],desiredConfig(entry.value))}checkProductConfigSize(candidate);try{sha=sameConfig(candidate,remote.config)?remote.sha:(await api('/api/config',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify({sha:remote.sha,config:candidate})})).sha}catch(e){if(e.status===409&&attempts<3&&retry)continue;throw e}
+ generalSyncing=(async()=>{try{let attempts=0,sha;while(Object.keys(generalPatch).length&&attempts++<(retry?3:1)){const sent=configClone(generalPatch),remote=await api('/api/config');let candidate=remote.config;for(const [key,entry]of Object.entries(sent)){if(!['current_fill_cycle_id','source_water'].includes(key))throw Error('Unsupported pending config field');guardConfigField('general',key,[key],entry.base,entry.value,remote.config);candidate=setConfigValue(candidate,[key],desiredConfig(entry.value))}checkProductConfigSize(candidate);try{sha=sameConfig(candidate,remote.config)?remote.sha:(await api('/api/config',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':session.csrf},body:JSON.stringify({sha:remote.sha,config:candidate})})).sha}catch(e){if(e.status===409&&attempts<3&&retry)continue;throw e}
  for(const [key,entry]of Object.entries(sent)){if(sameConfig(generalPatch[key]?.value,entry.value))delete generalPatch[key];else if(generalPatch[key])generalPatch[key].base=desiredConfig(entry.value);acknowledgeConflict('general',key)}configBaseline=configClone(candidate);configPending=Object.keys(generalPatch).length>0;saveSyncQueues();config=applyPendingConfig(candidate);writeConfigState(config,configPending)}return configPending?false:sha||true;
  }catch(e){configPending=Object.keys(generalPatch).length>0;saveSyncQueues();writeConfigState(config,configPending);$('syncState').textContent=e.code==='CONFIG_CONFLICT'?'Settings conflict · open Service':'Sync pending';$('syncState').className='warn';console.error(e);return false}finally{generalSyncing=null}})();return generalSyncing;
 }
@@ -1806,6 +1811,49 @@ function setupStripTesting(){
   $('history').addEventListener('click',e=>{if(!e.target.closest('[data-edit]')||!editingRecord?.strip_observations)return;for(const key of Object.keys(STRIP_PROFILE.blocks))if(isStripParameter(editingRecord,key)&&$('edit-'+key))$('edit-'+key).readOnly=true;const p=document.createElement('p');p.className='help';p.textContent='Strip choices and working ranges are preserved. To correct a strip observation, remove this entry and log the corrected test.';$('editFields').append(p);});
   update();
 }
+// One source baseline per fill and parameter; repeated testing of one fill
+// must not outweigh other fills. These are proxies, not fresh source samples.
+function sourceWaterBaselines(events,key,at=Date.now()){
+ if(!['ta_ppm','ph','ch_ppm'].includes(key))return [];
+ const cutoff=Number.isFinite(at)?at:parseSpaTime(at),fills=new Map();
+ for(const e of [...events].sort(timelineOrder))if(e.type==='water_change'&&e.full&&chartTime(e)<=cutoff&&!fills.has(e.new_fill_cycle_id))fills.set(e.new_fill_cycle_id,e);
+ const rows=[];
+ for(const [fillId,fill]of fills){
+  const explicit=fill.source_chemistry?.[key];if(Number.isFinite(explicit)){rows.push({fill_id:fillId,event_id:fill.id,timestamp:fill.timestamp,value:explicit,explicit:true});continue;}
+  const start=SpaTime.calendar(fill.timestamp.slice(0,10)),samples=events.filter(e=>e.type==='chemistry'&&Number.isFinite(e[key])&&!isStripParameter(e,key)&&effectiveModelFill(e,events)===fillId&&chartTime(e)<=cutoff&&timelineOrder(e,fill)>=0&&(e.measurement_context==='initial_fill_before_balancing'||SpaTime.calendar(e.timestamp.slice(0,10))-start<=3*86400000)).sort(timelineOrder);
+  const first=samples[0];if(!first)continue;
+  const affects=e=>key==='ta_ppm'?/acid|spa down|bisulfate|carbonate|baking soda/i.test(chemicalName(e)):key==='ch_ppm'?/calcium/i.test(chemicalName(e)):true;
+  if(events.some(e=>e.type==='chemical_addition'&&effectiveModelFill(e,events)===fillId&&timelineOrder(e,fill)>=0&&timelineOrder(e,first)<0&&affects(e)))continue;
+  rows.push({fill_id:fillId,event_id:first.id,timestamp:first.timestamp,value:first[key],historical:!!first.historical,explicit:false});
+ }
+ return rows.sort((a,b)=>compareSpa(a.timestamp,b.timestamp));
+}
+function sourceWaterEstimate(events,key,at=Date.now()){
+ const all=sourceWaterBaselines(events,key,at);if(!all.length)return null;
+ const mode=config?.source_water?.mode==='average'?'average':'latest',rows=mode==='average'?all:[all.at(-1)];
+ return {value:rows.reduce((s,r)=>s+r.value,0)/rows.length,approximate:true,basis:mode==='average'?'historical fill average':'latest fill baseline',mode,count:rows.length,event_id:rows.length===1?rows[0].event_id:undefined,event_ids:rows.map(r=>r.event_id),fill_ids:rows.map(r=>r.fill_id),timestamp:rows.at(-1).timestamp};
+}
+// Keep explicit per-top-off values and untreated FC behavior unchanged.
+const sourceWaterOriginalTopOff=topOffSource;
+topOffSource=function(event,events,key){
+ if(Number.isFinite(event.source_chemistry?.[key])||key!=='ta_ppm')return sourceWaterOriginalTopOff(event,events,key);
+ if(!events.some(e=>e.type==='water_change'&&e.full&&e.new_fill_cycle_id===effectiveModelFill(event,events)&&compareSpa(e,event)<=0))return null;
+ return sourceWaterEstimate(events,key,chartTime(event));
+};
+topOffSourceNote=function(event,events){const s=topOffSource(event,events,'ta_ppm');return s?.approximate?'Top-off source TA ≈'+Number(s.value.toFixed(1))+' ppm · '+s.basis+' ('+s.count+' fill'+(s.count===1?'':'s')+'); source water was not retested':s?.basis==='initial-fill source measurement'?'Top-off uses recorded initial-fill source TA '+s.value+' ppm':null;};
+function setupSourceWater(){
+ if(typeof window==='undefined'||!document.querySelector||guestPage())return;
+ const box=document.createElement('details');box.id='sourceWaterSettings';box.className='panel';
+ box.innerHTML='<summary>Source water · fill &amp; top-offs</summary><p class="help">Your first Taylor readings after a fresh fill, before relevant balancing chemicals, become its baseline. Test fields entered with the new-fill form work too. Same-source water is assumed for later top-offs.</p><label for="sourceWaterMode">Use for future top-offs</label><select id="sourceWaterMode"><option value="latest">Latest available fill baseline</option><option value="average">Average of historical fill baselines</option></select><p class="help">One value per fill per parameter. Missing values can use an earlier fill. Entering source TA on a top-off always overrides the profile. FC still defaults to 0; pH is not averaged directly into the tub.</p><div id="sourceWaterSummary"></div><button type="button" class="secondary" id="saveSourceWater">Save source-water preference</button><p id="sourceWaterStatus" role="status"></p>';
+ $('tab-maintenance').append(box);
+ let sourceWaterDirty=false,editBase=null;$('sourceWaterMode').onchange=()=>{if(!sourceWaterDirty)editBase=configClone(config);sourceWaterDirty=true;};
+ const refresh=()=>{const select=$('sourceWaterMode');if(!sourceWaterDirty)select.value=config?.source_water?.mode==='average'?'average':'latest';const rows=['ta_ppm','ph','ch_ppm'].map(key=>{const p=sourceWaterEstimate(activeEvents(),key),name={ta_ppm:'TA',ph:'pH',ch_ppm:'CH'}[key];return '<p>'+name+': '+(p?'≈'+p.value.toFixed(key==='ph'?1:0)+(key==='ph'?'':' ppm')+' · '+p.count+' fill'+(p.count===1?'':'s')+' · latest '+esc(p.timestamp.slice(0,10)):'awaiting an initial-fill reading')+'</p>';});$('sourceWaterSummary').innerHTML=rows.join('');};
+ $('saveSourceWater').onclick=async()=>{const mode=$('sourceWaterMode').value;if(!['latest','average'].includes(mode))return;const value={schema_version:1,mode};stageConfigField('source_water',value,editBase??config);config=applyPendingConfig(config||{schema_version:2,spa:{model:'Jacuzzi J-365',volume_gallons:395}});writeConfigState(config,true);sourceWaterDirty=false;editBase=null;render();$('sourceWaterStatus').textContent='Saved on this device · sync pending';if(session){const ok=await syncConfig();$('sourceWaterStatus').textContent=ok?'Source-water preference synced':'Saved on this device · sync pending';}};
+ const dirty=appHasUnsavedWork;appHasUnsavedWork=()=>dirty()||$('sourceWaterMode').value!==(config?.source_water?.mode==='average'?'average':'latest');
+ const renderBefore=render;render=function(...args){renderBefore(...args);refresh();};
+ const hint=document.createElement('p');hint.className='help';hint.textContent='Source TA left blank uses your saved fill-water profile when available.';$('sourceTa').after(hint);
+ refresh();
+}
 // Guest suggestions are drafts only. Canonical saved samples and actual doses
 // still pass through the existing server validation and private event history.
 function guestBleachPlan(events,products,settings,userId,now=Date.now()){
@@ -1898,6 +1946,7 @@ async function connectGuest(){
   const data=await api('/api/guest/context');guestContext=data;config=data.config;write(data.events);render();
   $('guestActivation').hidden=true;$('guestForm').hidden=false;
   $('identity').textContent='Guest · '+data.user;$('syncState').textContent='Connected';
+  if(GUEST_PRACTICE){$('identity').textContent='Guest practice · synthetic data';$('syncState').textContent='Not synced';}
   $('guestInstructions').textContent=data.instructions||'Record strip tests, soaks and completed doses. Forecasts are approximate, not acid-dose instructions.';
   $('guestGuideOwner').textContent=data.instructions||'Follow the spa owner’s instructions for products and doses.';
   $('guestExpiry').textContent='Access ends '+SpaTime.format(Date.parse(data.expires_at),{dateStyle:'medium',timeStyle:'short'});
@@ -2019,12 +2068,81 @@ function setupGuestManagement(){
   }catch(e){status(e.message+' If creation was interrupted, load invitations and revoke any unwanted entry before trying again.');}finally{busy=false;button.disabled=false;}
  };
 }
+let guestPracticeState=null;
+function guestPracticeSeed(){
+ const now=Date.now(),at=offset=>{const timestamp=SpaTime.input(now-offset);return {timestamp,...SpaTime.metadata(timestamp)};},fill='practice-fill',make=(id,offset,values)=>({id,schema_version:2,created_at:new Date(now-offset).toISOString(),fill_cycle_id:fill,...at(offset),...values});
+ const bleach=profileForChoice('7.5% liquid bleach'),acid=profileForChoice('Leisure Time Spa Down');
+ return {user:'Practice guest',expires_at:new Date(now+86400000).toISOString(),instructions:'Practice only—do not add real chemicals based on these synthetic readings.',config:{schema_version:2,spa:{model:'Jacuzzi J-365',volume_gallons:395},current_fill_cycle_id:fill},products:[{profile:bleach,max_single_mL:120,max_daily_mL:240},{profile:acid,max_single_mL:60,max_daily_mL:100}],events:[make(fill,7*86400000,{type:'water_change',full:true,gallons:395,new_fill_cycle_id:fill,starting_cya_ppm:30,starting_borates_ppm:40}),...[[6,4,7.3],[3,2.8,7.4],[1,1.8,7.5]].map(([h,fc,ph],i)=>make('practice-sample-'+i,h*3600000,{type:'chemistry',fc_ppm:fc,ph,ta_ppm:100,ch_ppm:180}))]};
+}
+async function guestPracticeFetch(path,options={}){
+ const answer=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}}),method=options.method||'GET';
+ if(!GUEST_PRACTICE)return answer({error:'Practice API unavailable'},403);
+ guestPracticeState??=guestPracticeSeed();const state=guestPracticeState;
+ if(path==='/api/guest/me'&&method==='GET')return answer({user:state.user,user_id:'practice-guest',role:'guest',csrf:'practice-only',expires_at:state.expires_at});
+ if(path==='/api/guest/context'&&method==='GET')return answer(state);
+ if(path==='/api/guest/entries'&&method==='POST'){
+  try{
+   if(options.headers?.['X-CSRF-Token']!=='practice-only')throw Error('Practice session required');
+   const input=JSON.parse(options.body).event,prior=state.events.find(e=>e.id===input.id);
+   if(prior){if(prior.practice_submission!==JSON.stringify(input))throw Error('Submission ID already used');return answer({ok:true,event:prior,replayed:true});}
+   const instant=Date.parse(input.timestamp_instant);if(!Number.isFinite(instant)||instant>Date.now()+60000||instant<Date.now()-48*3600000||SpaTime.input(instant)!==input.timestamp)throw Error('Choose a recent, valid Mountain time');
+   const event={id:input.id,type:input.type,schema_version:2,created_at:new Date().toISOString(),timestamp:input.timestamp,...SpaTime.metadata(input.timestamp,instant),fill_cycle_id:'practice-fill',guest_actor:{user_id:'practice-guest',grant_id:'practice-grant',label:'Practice guest'},practice_submission:JSON.stringify(input)};
+   if(input.supersedes_event_id){const old=guestActivePracticeEvents(state.events).find(e=>e.id===input.supersedes_event_id&&e.guest_actor?.user_id==='practice-guest');if(!old||input.type!=='remove'&&old.type!==input.type)throw Error('Only your own practice entries can be corrected');event.supersedes_event_id=old.id;if(input.type==='remove')Object.assign(event,{type:'note',record_removal:true,removed_record:old,notes:'Removed practice entry'});}
+   if(input.type==='chemistry'){
+    if(!input.readings||!Object.keys(input.readings).length)throw Error('Choose a strip reading');const readings={};for(const [key,choice]of Object.entries(input.readings)){if(!STRIP_PROFILE.blocks[key]?.map(String).includes(choice))throw Error('Choose a supported strip block');const r=stripObservation([],key,choice,instant);readings[key]=r;event[key]=r.working;}
+    Object.assign(event,{measurement_method:'test_strip',measurement_sources:Object.fromEntries(Object.keys(readings).map(k=>[k,'test_strip'])),strip_observations:{schema_version:1,profile_id:STRIP_PROFILE.id,product:STRIP_PROFILE.name,readings}});
+   }else if(input.type==='soak'){
+    if(!Number.isInteger(input.bathers)||input.bathers<1||input.bathers>6||!Number.isInteger(input.duration_minutes)||input.duration_minutes<1||input.duration_minutes>180||typeof input.showered!=='boolean'||!['off','water_only','air_on'].includes(input.jet_air_use))throw Error('Check soak details');
+    Object.assign(event,{bathers:input.bathers,duration_minutes:input.duration_minutes,showered:input.showered,jet_air_use:input.jet_air_use});
+   }else if(input.type==='chemical_addition'){
+    const product=state.products.find(p=>p.profile.id===input.product_id),mL=input.amount*PRODUCT_VOLUME[input.unit],used=guestActivePracticeEvents(state.events).filter(e=>e.type==='chemical_addition'&&e.product_id===input.product_id&&e.id!==input.supersedes_event_id&&Date.parse(e.created_at)>Date.now()-86400000).reduce((s,e)=>s+e.amount*PRODUCT_VOLUME[e.unit],0);
+    if(!product||!(Number.isFinite(mL)&&mL>0)||mL>product.max_single_mL||used+mL>product.max_daily_mL)throw Error('Amount exceeds the practice dose limits');
+    Object.assign(event,{product:product.profile.name,product_id:product.profile.id,product_profile:product.profile,product_revision:product.profile.revision,amount:input.amount,unit:input.unit});
+   }else if(input.type!=='remove')throw Error('Unsupported practice activity');
+   state.events.push(event);return answer({ok:true,event});
+  }catch(error){return answer({error:error.message},400);}
+ }
+ // Fail closed: no fallback to real fetch, even for weather or owner endpoints.
+ return answer({error:'Not available in practice mode. Nothing was sent or synced.'},403);
+}
+function guestActivePracticeEvents(events){const replaced=new Set(events.map(e=>e.supersedes_event_id).filter(Boolean));return events.filter(e=>!e.record_removal&&!replaced.has(e.id));}
+function setupGuestPractice(){
+ if(typeof window==='undefined'||!document.querySelector)return;
+ if(!guestPage()){
+  const link=document.createElement('a');link.id='guestPracticeLink';link.href='/guest?practice=1';link.target='_blank';link.rel='noopener';link.className='secondary';link.textContent='Try guest practice mode';const help=document.createElement('p');help.className='help';help.textContent='Synthetic data; no invitation or real saves. Practice does not test access-code delivery or browser activation.';$('guestManagement').prepend(link,help);return;
+ }
+ if(!GUEST_PRACTICE)return;
+ const banner=document.createElement('aside');banner.id='guestPracticeBanner';banner.className='panel';banner.setAttribute('role','status');banner.innerHTML='<strong>Practice only · synthetic water data</strong><p>No entries sync or persist. Do not use these sample doses on your real tub.</p><button id="resetGuestPractice" class="secondary" type="button">Reset practice</button> <a href="/" rel="noopener">Return to owner app</a>';$('guestPanel').before(banner);
+ $('resetGuestPractice').onclick=()=>{if(confirm('Discard practice entries and start over? Your real history is unaffected.'))location.reload();};
+ const logout=document.querySelector('#guestPanel a[href="/guest/logout"]');if(logout){logout.href='/';logout.textContent='Leave practice';}
+ const reminder=guestDoseReminder;guestDoseReminder=function(){reminder();$('guestAfterDose').querySelector('p').textContent='Practice dose recorded—not a real addition. In the real workflow: '+GUEST_AFTER_DOSE;};
+ const status=guestStatus;guestStatus=function(message){status('Practice · '+message);};
+}
+function forecastPerformance(events,key){const rows=validForecastReviews(events,key).filter(r=>Number.isFinite(r.error)).slice(-20);return {count:rows.length,mae:rows.length?rows.reduce((s,r)=>s+Math.abs(r.error),0)/rows.length:null,bias:rows.length?rows.reduce((s,r)=>s+r.error,0)/rows.length:null};}
+function setupForecastUsability(){
+ if(typeof window==='undefined'||!document.querySelector)return;
+ const style=document.createElement('style');style.textContent='#expandedChart .forecast-basis{display:none}#expandedChart [data-forecast-retest]{min-height:28px;padding:3px 8px;margin:0;font-size:12px}';document.head.append(style);
+ const overview=chartOverview;chartOverview=function(p,key,plotted,now=Date.now()){
+  const html=overview(p,key,plotted,now);if(!['fc_ppm','ph','ta_ppm'].includes(key))return html;
+  if(p?.blocked||!Number.isFinite(p?.current))return html+'<button type="button" class="secondary" data-forecast-retest="'+key+'">Log a '+({fc_ppm:'FC',ph:'pH',ta_ppm:'TA'}[key])+' test</button>';
+  const anchor=p.t??p.points?.[0]?.t,sample=Number.isFinite(anchor)?SpaTime.format(anchor,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):null,doses=p.points?.filter(point=>point.event_id).length||0;
+  return html+(sample?'<p class="help forecast-basis">From '+esc(sample)+(doses?' + logged activity':'')+'</p>':'');
+ };
+ document.addEventListener('click',e=>{const button=e.target.closest('[data-forecast-retest]');if(!button)return;if(chartViewer.open)chartViewer.close();setTab('chemistry');if(guestPage())$('guestChooseTest').click();const key=button.dataset.forecastRetest,field=guestPage()?'guest-'+key:{fc_ppm:'fc',ph:'ph',ta_ppm:'ta'}[key];if(guestPage()&&key==='ta_ppm')$('guestOptionalTests').open=true;$(field)?.focus();$(field)?.scrollIntoView?.({behavior:'smooth',block:'center'});});
+ if(guestPage())return;
+ const box=document.createElement('details');box.id='forecastPerformanceSummary';box.className='panel';box.innerHTML='<summary>Forecast accuracy · recent checks</summary><div id="forecastPerformanceRows"></div><p class="help">Up to 20 comparable frozen predictions per parameter. Typical miss is mean absolute error; bias is measured minus predicted. These are checks against later samples, not recalculated historical fits or a safety guarantee.</p>';$('tab-maintenance').append(box);
+ const update=()=>{$('forecastPerformanceRows').innerHTML=['fc_ppm','ph','ta_ppm'].map(key=>{const p=forecastPerformance(activeEvents(),key),digits=key==='ta_ppm'?0:2,unit=key==='ph'?'':' ppm';return '<p><strong>'+({fc_ppm:'FC',ph:'pH',ta_ppm:'TA'}[key])+'</strong> · '+(p.count?p.count+' check'+(p.count===1?'':'s')+' · typical miss '+p.mae.toFixed(digits)+unit+' · bias '+(p.bias>=0?'+':'')+p.bias.toFixed(digits)+unit:'No comparable checks yet')+'</p>';}).join('');};
+ const before=render;render=function(...args){before(...args);update();};update();
+}
 // END GENERATED APP UI
 migrateLegacy();fillNow();render();calculate();connect();
 setupAppUi();
 setupAppWorkflow();
 setupHistoryFilters();
 setupGuestMode();
+setupSourceWater();
+setupGuestPractice();
+setupForecastUsability();
 setupPwa();
 </script>
 </body>

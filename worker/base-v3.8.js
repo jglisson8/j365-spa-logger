@@ -369,6 +369,7 @@ function validateConfig(config) {
   if (config.maintenance_intervals != null && !isObject(config.maintenance_intervals)) throw new Error('maintenance_intervals must be an object');
   if (config.products != null && !isObject(config.products)) throw new Error('products must be an object');
   if (config.targets != null && !isObject(config.targets)) throw new Error('targets must be an object');
+  if (config.source_water != null && (!isObject(config.source_water) || config.source_water.schema_version !== 1 || !['latest','average'].includes(config.source_water.mode) || Object.keys(config.source_water).some(k=>!['schema_version','mode'].includes(k)))) throw new Error('Invalid source-water preference');
   if (te.encode(JSON.stringify(config)).length > MAX_CONFIG_BYTES) throw new Error('config is too large');
   return config;
 }

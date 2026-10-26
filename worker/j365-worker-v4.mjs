@@ -1,4 +1,4 @@
-// J-365 Spa Sync Worker v4.2 — owner-only encrypted guest code retrieval; owner OAuth retained.
+// J-365 Spa Sync Worker v4.3 — source-water settings and guest trend parity; owner OAuth retained.
 // Backward-compatible Cloudflare Worker for private GitHub-backed spa data.
 //
 // Required Cloudflare bindings:
@@ -369,6 +369,7 @@ function validateConfig(config) {
   if (config.maintenance_intervals != null && !isObject(config.maintenance_intervals)) throw new Error('maintenance_intervals must be an object');
   if (config.products != null && !isObject(config.products)) throw new Error('products must be an object');
   if (config.targets != null && !isObject(config.targets)) throw new Error('targets must be an object');
+  if (config.source_water != null && (!isObject(config.source_water) || config.source_water.schema_version !== 1 || !['latest','average'].includes(config.source_water.mode) || Object.keys(config.source_water).some(k=>!['schema_version','mode'].includes(k)))) throw new Error('Invalid source-water preference');
   if (te.encode(JSON.stringify(config)).length > MAX_CONFIG_BYTES) throw new Error('config is too large');
   return config;
 }
@@ -658,6 +659,9 @@ function guestPublicEvent(e){
   if(e.measurement_sources)v.measurement_sources=guestPick(e.measurement_sources,['fc_ppm','ph','ta_ppm','cc_ppm','ch_ppm','cya_ppm','borates_ppm']);
   if(e.strip_observations)v.strip_observations={...guestPick(e.strip_observations,['schema_version','profile_id','product']),readings:Object.fromEntries(Object.entries(guestPick(e.strip_observations.readings||{},Object.keys(GUEST_BLOCKS))).map(([k,r])=>[k,guestPick(r,['choice','minimum','maximum','working','censored','comparison_count','correction_applied'])]))};
   if(e.weather_context)v.weather_context={...guestPick(e.weather_context,['source','data_kind','retrieved_at','issued_at']),location:guestPick(e.weather_context.location||{},['latitude','longitude','site_elevation_ft','grid_elevation_ft','time_zone']),hours:(e.weather_context.hours||[]).map(h=>guestPick(h,['start','end','temperature_f','humidity_percent','wind_m_s','retrieved_at','issued_at','data_kind']))};
+  if(e.type==='water_top_off'){for(const k of ['top_off_reason','measurement_water_level','volume_estimated'])if(e[k]!=null)v[k]=e[k];}
+  if(['water_change','water_top_off'].includes(e.type)&&e.source_chemistry)v.source_chemistry=guestPick(e.source_chemistry,['fc_ppm','ta_ppm','ph','ch_ppm']);
+  if(e.measurement_context==='initial_fill_before_balancing')v.measurement_context=e.measurement_context;
   for(const k of ['test_before_dose_id','source_test_id','product_strength'])if(e[k]!=null)v[k]=e[k];
   if(e.calculation){v.calculation=guestPick(e.calculation,['volume_gallons','suggested_amount','unit','measurement_timestamp','target_fc_ppm','target_ph']);if(e.calculation.source_measurements)v.calculation.source_measurements=guestPick(e.calculation.source_measurements,['fc_ppm','ph','ph_bounds','ta_ppm','acid_demand_drops','acid_demand_target_ph']);if(e.calculation.acid_response_correction)v.calculation.acid_response_correction=guestPick(e.calculation.acid_response_correction,['factor','count','provisional','reference_mass_grams']);}
   // Don't copy user-written custom activity strings into shared trend context.
@@ -739,7 +743,7 @@ async function guestRoutes(req,env,url){
   if(url.pathname==='/api/guest/me'&&req.method==='GET')return json({user:current.user,user_id:current.user_id,role:'guest',csrf:current.csrf,expires_at:current.grant.ends_at,api_version:4});
   if(url.pathname==='/api/guest/context'&&req.method==='GET'){
     const file=await readRepoJson(CONFIG_FILE,current.token),config=file.value,events=await guestTimeline(current.token);
-    return json({user:current.user,expires_at:current.grant.ends_at,instructions:current.grant.instructions,products:current.grant.products.map(p=>({...p,profile:guestSafeProfile(p.profile)})),config:{...guestPick(config,['schema_version','targets','current_fill_cycle_id']),spa:guestPick(config.spa||{},['model','volume_gallons']),chemicals:guestPick(config.chemicals||{},['bleach_strength_percent'])},events:events.map(guestPublicEvent)});
+    return json({user:current.user,expires_at:current.grant.ends_at,instructions:current.grant.instructions,products:current.grant.products.map(p=>({...p,profile:guestSafeProfile(p.profile)})),config:{...guestPick(config,['schema_version','targets','current_fill_cycle_id']),...(config.source_water?{source_water:guestPick(config.source_water,['schema_version','mode'])}:{}),spa:guestPick(config.spa||{},['model','volume_gallons']),chemicals:guestPick(config.chemicals||{},['bleach_strength_percent'])},events:events.map(guestPublicEvent)});
   }
   if(url.pathname==='/api/guest/entries'&&req.method==='POST'){
     requireWriteAuth(req,url,current);const body=await parseJsonBody(req,12000);guestKeys(body,['event']);
@@ -787,7 +791,7 @@ export default {
         });
       }
       if (req.method === 'GET' && path === '/health') {
-        return json({ service: 'J-365 Spa Sync', status: 'running', version: '4.2', app_version: 'live-from-github-pages', storage_schema: 2 });
+        return json({ service: 'J-365 Spa Sync', status: 'running', version: '4.3', app_version: 'live-from-github-pages', storage_schema: 2 });
       }
       // Fixed public forecast only: no session, GitHub data, coordinates or URLs
       // supplied by callers. Weather works independently of repository sync.

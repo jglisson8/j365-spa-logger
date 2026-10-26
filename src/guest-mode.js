@@ -35,6 +35,7 @@ async function connectGuest(){
   const data=await api('/api/guest/context');guestContext=data;config=data.config;write(data.events);render();
   $('guestActivation').hidden=true;$('guestForm').hidden=false;
   $('identity').textContent='Guest · '+data.user;$('syncState').textContent='Connected';
+  if(GUEST_PRACTICE){$('identity').textContent='Guest practice · synthetic data';$('syncState').textContent='Not synced';}
   $('guestInstructions').textContent=data.instructions||'Record strip tests, soaks and completed doses. Forecasts are approximate, not acid-dose instructions.';
   $('guestGuideOwner').textContent=data.instructions||'Follow the spa owner’s instructions for products and doses.';
   $('guestExpiry').textContent='Access ends '+SpaTime.format(Date.parse(data.expires_at),{dateStyle:'medium',timeStyle:'short'});

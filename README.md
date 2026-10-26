@@ -31,6 +31,9 @@ are unchanged; current projections recompute from the new assumption.
 
 ## Temporary guest access (beta)
 
+For the current source-water profile, practice guest mode, compact forecast
+status and accuracy summary, see [v6.64 readiness notes](docs/readiness-6.64.md).
+
 See [guest invitations](docs/guest-invitations-6.58.0.md). Guests use expiring
 private links, without GitHub accounts. The separate guest UI includes strip
 tests, soaks, approved actual doses, and read-only Trends. No access is granted

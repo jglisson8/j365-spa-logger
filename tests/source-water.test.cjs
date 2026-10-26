@@ -1,0 +1,20 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),{JSDOM}=require('jsdom');
+const html=fs.readFileSync('index.html','utf8').replace('render();calculate();connect();','render();calculate();');
+const dom=new JSDOM(html,{url:'https://spa.test/',runScripts:'dangerously',beforeParse(w){w.scrollTo=()=>{};w.alert=()=>{}}}),w=dom.window,run=s=>w.eval(s),$=id=>w.document.getElementById(id);
+const fill=(id,day)=>({id,type:'water_change',full:true,timestamp:day+'T12:00',new_fill_cycle_id:id,gallons:395});
+const test=(id,cycle,timestamp,values)=>({id,type:'chemistry',timestamp,fill_cycle_id:cycle,...values});
+w.rows=[fill('first','2026-09-01'),test('first-ta','first','2026-09-01T12:10',{ta_ppm:170,ph:8,ch_ppm:130}),test('repeat','first','2026-09-01T12:20',{ta_ppm:180}),fill('second','2026-10-01'),test('second-ta','second','2026-10-01T12:01',{ta_ppm:150,ph:7.8}),{id:'after-acid',type:'chemical_addition',fill_cycle_id:'second',timestamp:'2026-10-01T12:05',product:'Spa Down',amount:1,unit:'tsp'},test('treated','second','2026-10-02T12:00',{ta_ppm:70}),fill('third','2026-10-20')];
+const before=JSON.stringify(w.rows);w.at=run("parseSpaTime('2026-10-25T12:00')");
+assert.equal(run("sourceWaterEstimate(rows,'ta_ppm',at).value"),150);assert.equal(run("sourceWaterBaselines(rows,'ta_ppm',at).length"),2);
+run("config={source_water:{schema_version:1,mode:'average'}}");assert.equal(run("sourceWaterEstimate(rows,'ta_ppm',at).value"),160);assert.equal(run("sourceWaterEstimate(rows,'ta_ppm',at).count"),2,'One baseline per fill, not per test');
+assert.equal(run("sourceWaterEstimate(rows,'ch_ppm',at).value"),130,'A missing parameter can use the prior source');
+assert.equal(run("sourceWaterEstimate(rows,'fc_ppm',at)"),null,'No chlorinated initial FC used as untreated source');
+assert.equal(run("sourceWaterEstimate(rows,'ta_ppm',parseSpaTime('2026-09-02T00:00')).value"),170,'No future fill evidence');
+w.newTest=test('fresh-next','third','2026-10-20T12:15',{ta_ppm:160,ph:7.7,ch_ppm:140});run("config.source_water.mode='latest';rows.push(newTest)");assert.equal(run("sourceWaterEstimate(rows,'ta_ppm',at).value"),160);
+w.topoff={id:'topoff',type:'water_top_off',timestamp:'2026-10-21T12:00',fill_cycle_id:'third',gallons:10,source_chemistry:{ta_ppm:120}};assert.equal(run("topOffSource(topoff,rows,'ta_ppm').value"),120);
+run("write(rows);render()");assert.match($('sourceWaterSummary').textContent,/TA: ≈160 ppm/);assert.equal($('sourceWaterMode').value,'latest');assert.equal(run('appHasUnsavedWork()'),false);
+$('sourceWaterMode').value='average';$('sourceWaterMode').dispatchEvent(new w.Event('change'));assert.equal(run('appHasUnsavedWork()'),true);run('render()');assert.equal($('sourceWaterMode').value,'average','Background renders preserve the unsaved preference');$('saveSourceWater').click();assert.equal(run('config.source_water.mode'),'average');assert.equal(run('generalPatch.source_water.value.mode'),'average');assert.equal(run('appHasUnsavedWork()'),false);assert.match($('sourceWaterStatus').textContent,/sync pending/);
+assert.equal(JSON.stringify(w.rows.slice(0,-1)),before,'Original samples and additions unchanged');
+// First-test/new-fill ordering supports same-minute test-before-dose.
+w.same=[fill('same','2026-10-22'),test('baseline','same','2026-10-22T12:00',{ta_ppm:155}),{id:'same-dose',type:'chemical_addition',timestamp:'2026-10-22T12:00',fill_cycle_id:'same',product:'Baking soda',amount:1,unit:'tsp'}];assert.equal(run("sourceWaterBaselines(same,'ta_ppm',at)[0].value"),155);
+dom.window.close();console.log('PASS: automatic next-fill baselines, latest/average one-per-fill, partial parameters, treatment/future exclusion, override priority, offline setting queue and unchanged evidence');
