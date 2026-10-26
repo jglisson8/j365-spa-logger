@@ -4,7 +4,7 @@ const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8'),tick=()=
  const {guestConstruct,guestPublicEvent}=await import('../worker/j365-worker-v4.mjs'),now=Date.now(),hour=3600000,errors=[],requests=[],posts=[];
  const profile={schema_version:1,id:'legacy-bleach',revision:1,name:'7.5% liquid bleach',manufacturer:'HDX',family:'hypochlorite',form:'liquid',concentration:{value:7.5,basis:'legacy'},legacy_name:'7.5% liquid bleach',legacy_reference:true};
  const grant={id:'guest-grant1',user_id:17,login:'tester',starts_at:new Date(now-24*hour).toISOString(),ends_at:new Date(now+24*hour).toISOString(),revoked:false,instructions:'Owner instructions',products:[{profile,max_single_mL:100,max_daily_mL:150}]},identity={user:'tester',user_id:17,grant_id:grant.id,grant};
- const config={schema_version:2,spa:{model:'Jacuzzi J-365',volume_gallons:395},targets:{cya_ppm:30,borates_ppm:40},current_fill_cycle_id:'fill'};
+ const config={schema_version:2,spa:{model:'Jacuzzi J-365',volume_gallons:395},targets:{fc_target_ppm:5,cya_ppm:30,borates_ppm:40},current_fill_cycle_id:'fill'};
  let events=[{id:'fill',type:'water_change',full:true,gallons:395,starting_cya_ppm:30,starting_borates_ppm:40,new_fill_cycle_id:'fill',timestamp:new Date(now-7*24*hour).toISOString()},...[24,12,1].map((h,i)=>({id:'sample'+i,type:'chemistry',fill_cycle_id:'fill',timestamp:new Date(now-h*hour).toISOString(),fc_ppm:5-i,ph:7.4+i*.1,ta_ppm:90}))],rejectNext=false;
  const console=new VirtualConsole();console.on('jsdomError',e=>errors.push(e.message));
  const credential='guest-invite-fixture.'+'A'.repeat(43),redeemed=[];

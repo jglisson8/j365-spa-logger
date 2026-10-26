@@ -16,4 +16,6 @@ const larger=plan([t],[approved],{...settings,spa:{volume_gallons:790}}),normal=
 for(const unit of ['cup','tbsp','tsp','fl oz','mL'])assert.ok(w.guestSuggestedAmount(normal.mL,unit)*w.eval('PRODUCT_VOLUME')[unit]<=normal.mL+.00001);
 assert.equal(plan([{...t,measurement_method:'taylor',measurement_sources:{fc_ppm:'taylor'},strip_observations:undefined,fc_ppm:2.2}]).assumed_fc,2.2);
 assert.equal(plan([t],[approved],{...settings,targets:{fc_target_ppm:1.5}}).status,'none');
+assert.equal(plan([t],[approved],{spa:{volume_gallons:395}}).target,7.5);
+assert.equal(plan([t],[approved],{...settings,targets:{fc_target_ppm:5,guest_fc_target_ppm:7.5}}).target,7.5,'Guest override does not change the owner goal');
 const frozen=JSON.stringify(t);plan([t]);assert.equal(JSON.stringify(t),frozen);dom.window.close();console.log('PASS: upper-bound strip bleach plans, all FC blocks, stale/intervening/off-scale guards, approved products, strength/volume, caps, exact Taylor and downward unit rounding');

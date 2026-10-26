@@ -39,6 +39,7 @@ async function connectGuest(){
   if(GUEST_PRACTICE){$('identity').textContent='Guest practice · '+(data.snapshot?'actual water snapshot':'synthetic data');$('syncState').textContent='Not synced';refreshGuestPracticeBanner();}
   $('guestInstructions').textContent=data.instructions||'Record strip tests, soaks and completed doses. Forecasts are approximate, not acid-dose instructions.';
   $('guestGuideOwner').textContent=data.instructions||'No additional owner instructions are saved. Use the calculated dose only when the app provides one; dose caps are not recommendations.';
+  $('guestGoalSummary').textContent='Dosing goals: pH '+(data.config.targets?.guest_ph_target??7.4)+' · FC '+(data.config.targets?.guest_fc_target_ppm??data.config.targets?.fc_target_ppm??7.5)+' ppm. Acid corrections remain gradual.';
   $('guestExpiry').textContent='Access ends '+SpaTime.format(Date.parse(data.expires_at),{dateStyle:'medium',timeStyle:'short'});
   const selectedProduct=$('guestProduct').value;
   $('guestProduct').innerHTML='<option value="">Choose product</option>'+data.products.map(p=>'<option value="'+esc(p.profile.id)+'">'+esc(p.profile.name)+'</option>').join('');
@@ -71,6 +72,7 @@ function setupGuestMode(){
  const guide=document.createElement('section');guide.id='tab-guest-guide';guide.className='panel tab';guide.hidden=true;guide.innerHTML=guestQuickGuide();$('tab-chemistry').before(guide);
  // Keep navigation shortcuts above the long guide, clear of fixed mobile tabs.
  guide.querySelector('h2').after(guide.querySelector('#guestGuideTest').parentElement);
+ const goalSummary=document.createElement('p');goalSummary.id='guestGoalSummary';goalSummary.className='help';guide.querySelector('h2').after(goalSummary);
  const guideTab=document.createElement('button');guideTab.type='button';guideTab.dataset.tab='guest-guide';guideTab.setAttribute('aria-label','Instructions');guideTab.setAttribute('aria-pressed','false');guideTab.setAttribute('aria-controls',guide.id);guideTab.innerHTML='<span class="nav-icon" aria-hidden="true">ⓘ</span><span>Instructions</span>';guideTab.onclick=()=>setTab('guest-guide');document.querySelector('.tabs').append(guideTab);
  $('guestGuideTest').onclick=()=>{setTab('chemistry');if(guestCorrection){guestStatus('Save or cancel your correction before starting a test.');return;}$('guestKind').value='chemistry';$('guestKind').dispatchEvent(new Event('change',{bubbles:true}));};$('guestGuideTrends').onclick=()=>setTab('trends');
  const logTab=document.querySelector('.tabs [data-tab="chemistry"]');logTab.querySelector('span:last-child').textContent='Log';logTab.setAttribute('aria-label','Log guest activity');
