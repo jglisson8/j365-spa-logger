@@ -1,5 +1,32 @@
 # Acid recommendation / forecast consistency — v6.66.1
 
+## v6.66.2 follow-up: scoped audit safeguard
+
+The final v6.66.1 guard incorrectly rejected the entire acid calibration archive
+when *any* correction lacked its creation timestamp. Old date-only refill, UV and
+quartz maintenance corrections triggered that fallback in the actual archive.
+That reset the correction to 1.0 and recreated the ≈7.9 forecast. The initial
+actual-record check had preceded that last safeguard edit, so the original
+release verification missed this regression.
+
+`acidCorrectionAffectsFit()` now restricts that guard to chemistry-relevant
+corrections that can affect acid fit evidence: local test/dose/retest windows
+(including the allowed earlier TA reading) and cumulative CYA/borate inputs.
+Routine UV/quartz service is not an acid-response confounder. A refill correction
+long before the independent calibration intervals no longer discards all of
+them; actual refill boundaries within an interval remain protected. Missing
+originals and unknown report times for relevant corrections still block unsafe
+reconstruction. No calibration equations or historical records were changed.
+
+Synthetic regression coverage now includes the old correction-chain archive,
+relevant chemical/soak/top-off corrections, unrelated service during a fit,
+live chart/readout parity and retrospective post-dose anchors. The **final**
+v6.66.2 engine was rerun read-only against the actual October 28 records:
+factor 0.69, two pre-dose pairs, endpoint 7.4, ≈7.487 after the assumed ten-minute
+mixing period and ≈7.489 at the time of verification. Chart and readout values
+were identical at every checked time. These remain conditional predictions,
+not measured post-dose values. No private records were written or backfilled.
+
 ## Verified cause and outcome
 
 `calculate()` calls `acidRecommendation()` / `acidDoseCalibration()` and applies

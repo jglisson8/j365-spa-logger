@@ -55,3 +55,23 @@ assert.equal(run('acidReferenceContext(laterReported.at(-1),laterReported.at(-2)
 c.frozen=[...correctedHistory,before,saved];assert.equal(run('acidReferenceContext(frozen.at(-1),frozen.at(-2),frozen).correction.factor'),.69);
 assert.equal(JSON.stringify(c.fixture),original);
 console.log('PASS: workflow parity, frozen metadata, partial/split/90% doses, endpoint invalidation, fill/product/time and correction-audit boundaries');
+// Old date-only refill corrections and routine service are not missing acid-fit
+// evidence. This is the archive shape that broke the first production fix.
+const oldFill={...fill,id:'old-fill',timestamp:'2026-09-10T12:00',created_at:undefined},fillCorrection={...fill,supersedes_event_id:oldFill.id,created_at:undefined},oldService={id:'old-uv',type:'maintenance',activity:'uv_bulb_replace',timestamp:'2026-09-10T12:00'},serviceCorrection={...oldService,id:'corrected-uv',supersedes_event_id:oldService.id,timestamp:'2026-09-12'};
+c.serviceArchive=[oldFill,fillCorrection,oldService,serviceCorrection,...history.slice(1),before,dose];
+const archiveOriginal=JSON.stringify(c.serviceArchive),withService=run('balanceProjection(serviceArchive,"ph",Date.now())');
+assert.equal(withService.acidDoseContext.correction.factor,.69,'Old refill/service corrections must not discard valid later acid calibration');
+assert.ok(Math.abs(withService.current-7.4)<.01);assert.equal(withService.workingBound,true);
+c.doseTime=run('modelTime(serviceArchive.at(-1))');
+assert.equal(run('chartProjectionValue(balanceProjection(serviceArchive,"ph",Date.now()),doseTime)'),7.4,'Dose-time chart anchor must equal the corrected endpoint');
+assert.equal(run('chartProjectionValue(balanceProjection(serviceArchive,"ph",Date.now()),Date.now())'),withService.current,'Current chart and estimate use one model');
+const afterSample={id:'later-real-sample',type:'chemistry',timestamp:'2026-10-28T18:26',created_at:stamp('2026-10-28T18:26'),fill_cycle_id:fill.id,ph:7.5};
+c.chartArchive=[...c.serviceArchive,afterSample];c.chartEnd=run('modelTime(chartArchive.at(-1))');
+assert.equal(run('phTaylorHistory(chartArchive,doseTime-60000,chartEnd).flatMap(p=>p.points).find(p=>p.event_id==="oct28-manual").v'),7.4,'Retrospective chart uses the same dose-time estimate, before the later sample');
+assert.equal(JSON.stringify(c.serviceArchive),archiveOriginal);
+for(const type of ['soak','chemical_addition','water_top_off']){
+ c.interferenceArchive=[...c.fixture,{id:'unknown-'+type,type,timestamp:'2026-10-26T12:10',supersedes_event_id:'unavailable-original',...(type==='chemical_addition'?{product:'Baking soda',amount:1,unit:'tsp'}:{})}];
+ assert.equal(run('acidReferenceContext(interferenceArchive.find(e=>e.id==="oct28-manual"),interferenceArchive.find(e=>e.id==="oct28-before"),interferenceArchive).uncertain'),true,'Relevant '+type+' correction must still protect calibration');
+}
+c.nearService=[...c.fixture,{...serviceCorrection,timestamp:'2026-10-26T12:10'}];assert.equal(run('acidReferenceContext(nearService.find(e=>e.id==="oct28-manual"),nearService.find(e=>e.id==="oct28-before"),nearService).correction.factor'),.69,'Routine UV service is not an acid-response confounder even during an evidence interval');
+console.log('PASS: old refill/service correction archive, live readout/chart parity, retrospective dose anchor and unchanged records');

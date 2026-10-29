@@ -144,7 +144,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.66.1',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.66.2',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -806,6 +806,19 @@ function acidRecommendation(drops,volume,events=activeEvents(),at=localNow(),pro
 // Recommendation context is immutable per test/product, not a new chemical
 // potency. Historical reconstruction is read-only and uses knowledge at dosing.
 function acidEventSubset(events,predicate){const subset=events.filter(predicate);Object.defineProperty(subset,'acidAudit',{value:events.acidAudit??events});return subset}
+function acidCorrectionAffectsFit(correction,ledger,at){
+ const original=ledger.find(e=>e.id===correction.supersedes_event_id)??correction.removed_record;
+ const relevant=e=>e&&(isExposure(e)||['chemistry','chemical_addition','soak','water_change','water_top_off'].includes(e.type)||e.type==='note'&&(e.cya_baseline_ppm!=null||e.borates_baseline_ppm!=null));
+ const records=[correction,original].filter(relevant);if(!records.length)return false;
+ // Inventory observations can affect later buffer states even outside a local
+ // before/dose/retest interval; keep their audit protection conservative.
+ if(records.some(e=>e.cya_ppm!=null||e.borates_ppm!=null||e.cya_baseline_ppm!=null||e.borates_baseline_ppm!=null||e.type==='chemical_addition'&&/dichlor|boric/i.test(chemicalName(e))))return true;
+ const doses=ledger.filter(e=>e.type==='chemical_addition'&&!e.historical&&modelTime(e)!=null&&modelTime(e)<=at&&(!e.created_at||parseSpaTime(e.created_at)<=at)&&/^(leisure time spa down|spa down|dry acid|sodium bisulfate)$/i.test(chemicalName(e)));
+ // Existing fit rules allow a test up to 2 h before a dose, TA up to 1 h
+ // before that test, and the retest up to 2 h after dosing. An old refill or
+ // routine service outside those evidence windows cannot erase every fit.
+ return records.some(e=>doses.some(d=>{const time=modelTime(e),start=modelTime(d)-3*3600000,end=Math.min(at,modelTime(d)+2*3600000);return time==null?String(e.timestamp).slice(0,10)>=SpaTime.input(start).slice(0,10)&&String(e.timestamp).slice(0,10)<=SpaTime.input(end).slice(0,10):time>=start&&time<=end}));
+}
 function acidReferenceContext(dose,sample,events,capturing=false){
  const at=modelTime(dose),start=modelTime(sample),profile=doseProduct(dose),key=profile?productCompositionKey(profile):productCalibrationKey(dose);
  if(at==null||start==null||at<start||at-start>2*3600000||effectiveModelFill(dose,events)!==effectiveModelFill(sample,events)||dose.test_before_dose_id&&dose.test_before_dose_id!==sample.id)return null;
@@ -817,7 +830,7 @@ function acidReferenceContext(dose,sample,events,capturing=false){
  const ledger=events.acidAudit??events,known=ledger.filter(e=>(modelTime(e)==null?String(e.timestamp).slice(0,10)<=dose.timestamp.slice(0,10):modelTime(e)<=at)&&(!e.created_at||parseSpaTime(e.created_at)<=at)),replaced=new Set(known.map(e=>e.supersedes_event_id).filter(Boolean));
  // An active-only input may have lost the superseded original. Never infer its
  // old contents from today's replacement, or silently fit a subset of history.
- const incomplete=ledger.some(e=>e.supersedes_event_id&&(!ledger.some(x=>x.id===e.supersedes_event_id)||!e.created_at||!Number.isFinite(parseSpaTime(e.created_at))));
+ const incomplete=ledger.some(e=>e.supersedes_event_id&&(!ledger.some(x=>x.id===e.supersedes_event_id)||!e.created_at||!Number.isFinite(parseSpaTime(e.created_at)))&&acidCorrectionAffectsFit(e,ledger,at));
  const available=known.filter(e=>!replaced.has(e.id)&&!e.record_removal).map(e=>{
   // Keep incompatible/undated records as confounders, but not fit candidates.
   const wrongProduct=e.type==='chemical_addition'&&profile&&(e.product_profile?productCompositionKey(e.product_profile)!==key:!profile.legacy_reference||profile.revision!==1);
