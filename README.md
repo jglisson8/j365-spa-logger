@@ -4,6 +4,9 @@ Static, local-first logger with authenticated private GitHub synchronization thr
 
 ## Development and tests
 
+For the targeted manual/calculated acid-response consistency fix, see
+[v6.66.1 investigation and regression notes](docs/acid-dose-context-6.66.1.md).
+
 Use Node.js 24 (`nvm use`), then:
 
 ```sh
