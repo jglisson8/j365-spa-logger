@@ -38,6 +38,40 @@ function guestPracticalDose(plan){
  if(!(amount>0))return {...plan,status:'check',message:acid?'The supported acid correction is less than 1 tbsp. No whole-tablespoon dose is suggested; do not round up.':'The supported bleach correction is less than ¼ cup. No cup-size dose is suggested; do not round up.'};
  return {...plan,calculated_mL:plan.mL,mL:amount*PRODUCT_VOLUME[unit],suggested_amount:amount,suggested_unit:unit,suggested_label:acid?String(amount):amount===.5?'½':amount===.25?'¼':'⅓'};
 }
+// A single, bounded bleach → acid workflow. This reuses the original test,
+// never manufactures a post-bleach measurement, and never permits repeat acid.
+function guestCombinedAcidPlan(events,products,settings,userId,now=Date.now()){
+ const relevant=e=>['chemistry','chemical_addition','soak','water_change','water_top_off','maintenance'].includes(e.type)||isExposure(e)||e.cya_baseline_ppm!=null||e.borates_baseline_ppm!=null;
+ const ordered=events.filter(e=>Number.isFinite(modelTime(e))&&modelTime(e)<=now+60000).sort(timelineOrder);
+ const dose=ordered.filter(e=>e.type==='chemical_addition'&&e.guest_actor?.user_id===userId&&e.product_profile?.family==='hypochlorite').at(-1);
+ if(!dose||now-modelTime(dose)>2*3600000||ordered.some(e=>timelineOrder(e,dose)>0&&relevant(e)))return null;
+ if(events.some(e=>e.id!==dose.id&&relevant(e)&&modelTime(e)==null&&(!e.timestamp||String(e.timestamp).slice(0,10)>=dose.timestamp.slice(0,10))))return null;
+ const before=events.filter(e=>timelineOrder(e,dose)<0);
+ const bleach=guestPracticalDose(guestBleachPlan(before,products,settings,userId,modelTime(dose))),acid=guestPracticalDose(guestAcidPlan(before,products,settings,userId,modelTime(dose)));
+ if(bleach.status!=='dose'||acid.status!=='dose')return null;
+ // The original FC and pH may have been saved separately. Keep each actual
+ // source; neither becomes a newly timed post-dose sample.
+ const sources=[bleach.sample_id,acid.sample_id].map(id=>before.find(e=>e.id===id));
+ if(sources.some(test=>!test||modelTime(test)==null||modelTime(dose)-modelTime(test)<0||modelTime(dose)-modelTime(test)>30*60000||now-modelTime(test)>2*3600000))return null;
+ const stop=message=>({...acid,status:'check',sequence:true,bleach_id:dose.id,message});
+ // Pin the real bleach formulation; changing products/strength needs a test.
+ if(dose.product_id!==bleach.profile.id||dose.product_revision!==bleach.profile.revision||dose.product_profile.concentration?.value!==bleach.profile.concentration?.value||dose.product_profile.concentration?.basis!==bleach.profile.concentration?.basis||densityGml(dose.product_profile.density)!==densityGml(bleach.profile.density))return stop('Bleach product information changed. Log a fresh test before pH Down.');
+ const mass=profileFcGrams(dose.product_profile,dose.amount,dose.unit),volume=bleach.volume_gallons;
+ if(!(Number.isFinite(mass)&&mass>0))return stop('The actual bleach amount cannot be checked. Log a fresh test before pH Down.');
+ const upperFc=bleach.assumed_fc+mass*1000/(volume*3.78541);
+ if(upperFc>10)return stop('The logged bleach could put FC above 10 ppm. Test FC before pH Down.');
+ const readyAt=modelTime(dose)+20*60000;
+ return {...acid,sequence:true,bleach_id:dose.id,ready_at:readyAt,estimated_fc_upper:upperFc,status:now<readyAt?'wait':'dose',message:now<readyAt?'Bleach saved. Keep the cover open and Jets 1 and 2 running. pH Down will be offered after the 20-minute mixing wait.':'Next: pH Down, using the original test and the checked bleach addition. This is a calculation, not a new water reading. Mix and retest after pH Down before soaking.'};
+}
+function guestUiDosePlan(profile,events,products,settings,userId){
+ if(profile?.family==='bisulfate'&&typeof guestFlow!=='undefined'&&guestFlow.phase==='sequence'){
+  const combined=guestCombinedAcidPlan(events,products,settings,userId);
+  if(!combined)return {status:'check',message:'The water history changed or this dose sequence expired. Log a fresh test before another dose.'};
+  if(combined.status==='dose'&&guestContextLoadedAt<combined.ready_at)return {...combined,status:'wait',message:'Mixing wait finished. Checking the latest saved water data before pH Down…'};
+  return combined;
+ }
+ return guestPracticalDose((profile?.family==='bisulfate'?guestAcidPlan:guestBleachPlan)(events,products,settings,userId));
+}
 function guestAcidPlan(events,products,settings,userId,now=Date.now()){
  const stop=message=>({status:'check',message}),approved=products.find(p=>p.profile.family==='bisulfate');if(!approved)return stop('pH Down is not enabled for this invitation.');
  const sample=events.filter(e=>e.type==='chemistry'&&Number.isFinite(e.ph)&&modelTime(e)!=null&&modelTime(e)<=now+60000).sort(timelineOrder).at(-1);
@@ -78,7 +112,7 @@ function guestAcidPlan(events,products,settings,userId,now=Date.now()){
 }
 function refreshGuestDoseAdvice(){
  if(!$('guestDoseAdvice'))return;
- const rows=activeEvents(),selected=guestContext?.products.find(p=>p.profile.id===$('guestProduct').value),acid=selected?.profile.family==='bisulfate',planner=(...args)=>guestPracticalDose((acid?guestAcidPlan:guestBleachPlan)(...args)),plan=planner(rows,guestContext?.products||[],config,session?.user_id);
+ const rows=activeEvents(),selected=guestContext?.products.find(p=>p.profile.id===$('guestProduct').value),acid=selected?.profile.family==='bisulfate',planner=(...args)=>guestUiDosePlan(selected?.profile,...args),plan=planner(rows,guestContext?.products||[],config,session?.user_id);
  const box=$('guestDoseAdvice');box.replaceChildren();
  $('guestBleachShortcut').hidden=!guestContext?.products.some(p=>p.profile.family==='hypochlorite')||!!guestCorrection;
  if(guestCorrection){box.textContent='Correct the amount actually added. This does not recommend a new dose.';return;}
@@ -91,7 +125,7 @@ function refreshGuestDoseAdvice(){
  const quantity=document.createElement('strong');quantity.style.cssText='display:block;margin-bottom:10px';quantity.textContent=plan.suggested_label+' '+unit+' '+plan.profile.name;
  const context=document.createElement('p');context.className='help';context.textContent=acid?'pH lower working bound ≈'+plan.assumed_ph.toFixed(1)+' ('+plan.source+') · calculated correction toward '+plan.target.toFixed(1)+' · '+plan.volume_gallons+' gal':'FC '+plan.assumed_fc+' ppm ('+plan.source+') → target '+plan.target+' ppm'+(plan.target_default?' (default; not yet set by owner)':'')+' · '+plan.volume_gallons+' gal';
  if(acid&&unit==='cup')context.textContent+=' · ≈'+(amount*48).toFixed(2)+' tsp (same amount)';
- const use=document.createElement('button');use.id='guestUseSuggested';use.type='button';use.className='secondary';use.textContent='Use this amount';
+ const use=document.createElement('button');use.id='guestUseSuggested';use.type='button';use.className='secondary';use.textContent=plan.sequence?'Mixing finished · use this amount':'Use this amount';
  use.onclick=()=>{
   if(guestBusy||guestCorrection)return;
   const current=planner(activeEvents(),guestContext?.products||[],config,session?.user_id);
