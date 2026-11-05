@@ -51,7 +51,7 @@ async function connectGuest(){
   guestStatus('Ready.');
   if(clean)guestBaseline=guestSignature();
   return true;
- }catch(error){session=null;guestContext=null;$('guestForm').hidden=true;write([]);if(typeof chartViewer!=='undefined'&&chartViewer.open)chartViewer.close();render();$('identity').textContent='Guest access';$('syncState').textContent='Invitation required';guestStatus(error.status===401?'Open the invitation link sent by the spa owner. No GitHub account is needed.':error.message);return false;}finally{guestConnecting=false;$('guestActivate').disabled=false;}
+ }catch(error){session=null;guestContext=null;$('guestForm').hidden=true;write([]);if(typeof chartViewer!=='undefined'&&chartViewer.open)chartViewer.close();render();$('identity').textContent=GUEST_PRACTICE?'Guest preview':'Guest access';$('syncState').textContent=GUEST_PRACTICE?'Not loaded':'Invitation required';guestStatus(!GUEST_PRACTICE&&error.status===401?'Open the invitation link sent by the spa owner. No GitHub account is needed.':error.message);return false;}finally{guestConnecting=false;$('guestActivate').disabled=false;}
 }
 function guestInput(){
  const ts=guestPending?.timestamp||(!guestTimeEdited&&!guestCorrection?localNow():$('guestAt').value),type=$('guestKind').value,event={id:guestPending?.id||crypto.randomUUID(),type,timestamp:ts,timestamp_instant:guestPending?.timestamp_instant||SpaTime.metadata(ts).timestamp_instant};

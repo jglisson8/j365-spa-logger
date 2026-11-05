@@ -3,29 +3,28 @@ let guestPracticeState=null,guestPracticeLoading=null,guestPracticeSnapshotData=
 // exists for practice submissions, invitations, weather or arbitrary URLs.
 async function guestPracticeRead(path){
  if(!['/api/me','/api/config','/api/months','/api/guests'].includes(path)&&!/^\/api\/events\?month=\d{4}-(0[1-9]|1[0-2])$/.test(path))throw Error('Unsupported snapshot read');
- const response=await guestPracticeReadFetch(path,{method:'GET',credentials:'same-origin',cache:'no-store'});if(!response.ok)throw Error('Sign in to the owner app to load real-data practice.');return response.json();
+ const response=await guestPracticeReadFetch(path,{method:'GET',credentials:'same-origin',cache:'no-store'});if(!response.ok)throw Object.assign(Error([401,403].includes(response.status)?'Sign in to the owner app to load your saved tub data.':'Saved tub data could not be loaded ('+response.status+'). Reload this preview to retry.'),{status:response.status});return response.json();
 }
 function guestPracticeEvent(event){
  const fields=['id','schema_version','app_version','type','timestamp','timestamp_instant','time_zone','utc_offset_minutes','date_precision','created_at','fill_cycle_id','fc_ppm','cc_ppm','ph','ph_bounds','ta_ppm','ch_ppm','cya_ppm','borates_ppm','temperature_f','acid_demand_drops','acid_demand_target_ph','bathers','duration_minutes','showered','jet_air_use','air_on_minutes','product','product_id','product_revision','product_profile','amount','unit','strength_percent','purity_percent','circulation_minutes','activity','filter_set','full','gallons','new_fill_cycle_id','starting_cya_ppm','starting_borates_ppm','cya_baseline_ppm','borates_baseline_ppm','exposure','water_source','softened','measurement_method','measurement_sources','strip_observations','test_kit','calculation','test_before_dose_id','source_test_id','product_strength','historical','weather_context','source_chemistry','measurement_context','top_off_reason','water_level_before','water_level_after'];
  const safe=Object.fromEntries(fields.filter(k=>event[k]!=null).map(k=>[k,configClone(event[k])]));if(event.custom_activity==='Standalone jets')safe.custom_activity='Standalone jets';return safe;
 }
 function guestPracticeUseSnapshot(id){
- const snapshot=guestPracticeSnapshotData,grant=snapshot.grants.find(g=>g.id===id);if(!grant)throw Error('Choose an invitation for practice');
+ const snapshot=guestPracticeSnapshotData,grant=snapshot.grants.find(g=>g.id===id)??(!snapshot.grants.length&&id==null?{id:null,label:'Preview without an invitation',products:[],instructions:'Preview your saved water history, tests, soaks and Trends. Create a guest invitation in the owner app to rehearse its approved products and dose limits.'}:null);if(!grant)throw Error('Choose an invitation for practice');
  const products=grant.products.map(p=>{const used=snapshot.raw.filter(e=>e.type==='chemical_addition'&&e.product_id===p.profile.id&&e.guest_actor?.grant_id===grant.id&&Date.parse(e.created_at)>snapshot.loaded_at-86400000).reduce((sum,e)=>sum+e.amount*(PRODUCT_VOLUME[e.unit]||0),0);return {...configClone(p),max_daily_mL:Math.max(0,p.max_daily_mL-used)};});
  return {user:'Practice guest',expires_at:new Date(Date.now()+86400000).toISOString(),instructions:grant.instructions||'',config:configClone(snapshot.config),products,events:snapshot.raw.map(guestPracticeEvent),snapshot:true,snapshot_at:new Date(snapshot.loaded_at).toISOString(),grant_label:grant.label||grant.login,grant_id:grant.id};
 }
 async function guestPracticeInitialize(){
- if(new URLSearchParams(location.search).get('source')!=='owner')return guestPracticeSeed();
- try{
+ // Synthetic fixtures are available only by explicit opt-in on local test hosts.
+ // Production previews always load owner-authenticated real data, or fail closed.
+ if(new URLSearchParams(location.search).get('source')==='demo'&&['spa.test','localhost','127.0.0.1'].includes(location.hostname))return guestPracticeSeed();
   const me=await guestPracticeRead('/api/me');if(me.role==='guest')throw Error('Owner sign-in required');
   const [saved,archive,access]=await Promise.all(['/api/config','/api/months','/api/guests'].map(guestPracticeRead));
   const months=[...new Set(archive.months||[])];if(months.length>24)throw Error('Archive is too large for this practice view');
   const documents=await Promise.all(months.map(month=>guestPracticeRead('/api/events?month='+month))),raw=guestActivePracticeEvents(documents.flatMap(d=>d.document.events));
   const now=Date.now(),grants=access.policy.grants.filter(g=>!g.revoked&&Date.parse(g.ends_at)>now).sort((a,b)=>Number(Date.parse(a.starts_at)>now)-Number(Date.parse(b.starts_at)>now)||Date.parse(a.starts_at)-Date.parse(b.starts_at));
-  if(!grants.length)throw Error('No unexpired invitation is available to rehearse');
   guestPracticeSnapshotData={raw,grants,loaded_at:now,config:{schema_version:2,spa:configClone(saved.config.spa),targets:configClone(saved.config.targets),chemicals:configClone(saved.config.chemicals),source_water:configClone(saved.config.source_water),current_fill_cycle_id:saved.config.current_fill_cycle_id}};
-  return guestPracticeUseSnapshot(grants[0].id);
- }catch(error){return {...guestPracticeSeed(),snapshot_error:error.message};}
+  return guestPracticeUseSnapshot(grants[0]?.id);
 }
 function guestPracticeSeed(){
  const now=Date.now(),at=offset=>{const timestamp=SpaTime.input(now-offset);return {timestamp,...SpaTime.metadata(timestamp)};},fill='practice-fill',make=(id,offset,values)=>({id,schema_version:2,created_at:new Date(now-offset).toISOString(),fill_cycle_id:fill,...at(offset),...values});
@@ -35,7 +34,8 @@ function guestPracticeSeed(){
 async function guestPracticeFetch(path,options={}){
  const answer=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}}),method=options.method||'GET';
  if(!GUEST_PRACTICE)return answer({error:'Practice API unavailable'},403);
- if(!guestPracticeState){guestPracticeLoading??=guestPracticeInitialize();guestPracticeState=await guestPracticeLoading;}const state=guestPracticeState;
+ if(!((method==='GET'&&['/api/guest/me','/api/guest/context'].includes(path))||(method==='POST'&&path==='/api/guest/entries')))return answer({error:'Not available in practice mode. Nothing was sent or synced.'},403);
+ if(!guestPracticeState){try{guestPracticeLoading??=guestPracticeInitialize();guestPracticeState=await guestPracticeLoading;}catch(error){guestPracticeLoading=null;const banner=$('guestPracticeBanner');if(banner){banner.querySelector('strong').textContent='Real-data preview unavailable';banner.querySelector('p').textContent=error.message+' No demo data was substituted. Use Reload latest tub data to retry; sign in through the owner app if needed.';}return answer({error:error.message},error.status||503)}}const state=guestPracticeState;
  if(path==='/api/guest/me'&&method==='GET')return answer({user:state.user,user_id:'practice-guest',role:'guest',csrf:'practice-only',expires_at:state.expires_at});
  if(path==='/api/guest/context'&&method==='GET')return answer(state);
  if(path==='/api/guest/entries'&&method==='POST'){
@@ -68,12 +68,12 @@ function guestActivePracticeEvents(events){const replaced=new Set(events.map(e=>
 function setupGuestPractice(){
  if(typeof window==='undefined'||!document.querySelector)return;
  if(!guestPage()){
-  const link=document.createElement('a');link.id='guestPracticeLink';link.href='/guest?practice=1&source=owner';link.target='_blank';link.rel='noopener';link.className='secondary';link.textContent='Try guest practice mode';const help=document.createElement('p');help.className='help';help.textContent='Owner sign-in loads saved water history and an unexpired invitation’s products and remaining limits, including upcoming invitations. Practice additions never sync or activate access. No invitation? A clearly labeled synthetic demo is used instead.';$('guestManagement').prepend(link,help);return;
+  const link=document.createElement('a');link.id='guestPracticeLink';link.href='/guest?practice=1&source=owner';link.target='_blank';link.rel='noopener';link.className='secondary';link.textContent='Preview guest mode · real data';const help=document.createElement('p');help.className='help';help.textContent='Loads your saved tub history and Trends in guest view. No invitation needed to preview tests and soaks; an unexpired invitation supplies its exact product permissions and remaining dose limits. Preview entries never sync or activate guest access.';$('guestManagement').prepend(link,help);return;
  }
  if(!GUEST_PRACTICE)return;
  const badge=document.createElement('p');badge.id='guestPracticeBadge';badge.className='help';badge.style.color='#ffd18b';badge.textContent='Practice only · nothing saves to your real tub';document.querySelector('.status').after(badge);
- const banner=document.createElement('aside');banner.id='guestPracticeBanner';banner.className='panel';banner.setAttribute('role','status');banner.innerHTML='<strong>Practice only · synthetic water data</strong><p>No entries sync or persist. Do not use these sample doses on your real tub.</p><button id="resetGuestPractice" class="secondary" type="button">Reset practice</button> <a href="/" rel="noopener">Return to owner app</a>';$('guestPanel').before(banner);
- $('resetGuestPractice').onclick=()=>{if(confirm('Discard practice entries and start over? Your real history is unaffected.'))location.reload();};
+ const banner=document.createElement('aside');banner.id='guestPracticeBanner';banner.className='panel';banner.setAttribute('role','status');banner.innerHTML='<strong>Guest preview · loading your saved tub data</strong><p>Preview entries are temporary and never sync. No demo data will be substituted.</p><button id="resetGuestPractice" class="secondary" type="button">Reload latest tub data</button> <a href="/" rel="noopener">Return to owner app</a>';$('guestPanel').before(banner);
+ $('resetGuestPractice').onclick=()=>{if(confirm('Reload the latest saved tub data and discard temporary preview entries? Your real history is unaffected.'))location.reload();};
  const logout=document.querySelector('#guestPanel a[href="/guest/logout"]');if(logout){logout.href='/';logout.textContent='Leave practice';}
  const reminder=guestDoseReminder;guestDoseReminder=function(){reminder();$('guestAfterDose').querySelector('p').textContent='Practice dose recorded—not a real addition. In the real workflow: '+GUEST_AFTER_DOSE;};
  const status=guestStatus;guestStatus=function(message){status('Practice · '+message);};
@@ -81,6 +81,6 @@ function setupGuestPractice(){
 function refreshGuestPracticeBanner(){
  const banner=$('guestPracticeBanner'),state=guestPracticeState;if(!banner||!state)return;
  banner.querySelector('strong').textContent=state.snapshot?'Practice only · actual water snapshot':'Practice only · synthetic water data';
- banner.querySelector('p').textContent=state.snapshot?'Saved data loaded '+SpaTime.format(Date.parse(state.snapshot_at),{dateStyle:'short',timeStyle:'short'})+'. Forecasts and calculations use this snapshot; practice entries never sync or persist. Do not add real chemicals from practice mode.':(state.snapshot_error?state.snapshot_error+'. Using a synthetic demo instead. ':'')+'No entries sync or persist. Do not use these sample doses on your real tub.';
- if(state.snapshot&&!$('guestPracticeGrant')){const label=document.createElement('label');label.htmlFor='guestPracticeGrant';label.textContent='Invitation to rehearse';const select=document.createElement('select');select.id='guestPracticeGrant';for(const grant of guestPracticeSnapshotData.grants){const option=document.createElement('option');option.value=grant.id;option.textContent=grant.label||grant.login;select.append(option);}select.value=state.grant_id;select.onchange=async()=>{if(!confirm('Discard temporary practice entries and switch invitation? Real records are unaffected.')){select.value=guestPracticeState.grant_id;return;}guestPracticeState=guestPracticeUseSnapshot(select.value);guestPending=null;guestCorrection=null;$('guestCancel').click();$('guestAmount').value='';for(const key of Object.keys(STRIP_PROFILE.blocks))$('guest-'+key).value='';await connectGuest();};banner.append(label,select);}
+ banner.querySelector('p').textContent=state.snapshot?'Saved data loaded '+SpaTime.format(Date.parse(state.snapshot_at),{dateStyle:'short',timeStyle:'short'})+'. Forecasts use this snapshot; Reload latest tub data refreshes it. Preview entries never sync or persist. '+(!state.grant_id?'No invitation: tests, soaks and Trends are available; create an invitation to preview approved dosing. ':'')+'Do not add real chemicals from practice mode.':'Local test fixture only. No entries sync or persist. Do not use these sample doses on your real tub.';
+ if(state.snapshot&&guestPracticeSnapshotData.grants.length&&!$('guestPracticeGrant')){const label=document.createElement('label');label.htmlFor='guestPracticeGrant';label.textContent='Invitation to rehearse';const select=document.createElement('select');select.id='guestPracticeGrant';for(const grant of guestPracticeSnapshotData.grants){const option=document.createElement('option');option.value=grant.id;option.textContent=grant.label||grant.login;select.append(option);}select.value=state.grant_id;select.onchange=async()=>{if(!confirm('Discard temporary practice entries and switch invitation? Real records are unaffected.')){select.value=guestPracticeState.grant_id;return;}guestPracticeState=guestPracticeUseSnapshot(select.value);guestPending=null;guestCorrection=null;$('guestCancel').click();$('guestAmount').value='';for(const key of Object.keys(STRIP_PROFILE.blocks))$('guest-'+key).value='';await connectGuest();};banner.append(label,select);}
 }
