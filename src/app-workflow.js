@@ -1,8 +1,19 @@
 // Interaction layer only: no chemistry/model/storage-schema changes.
 let appWorkflowState=null;
+function refreshSoakDurationPicker(input){const select=$(input.id+'Picker');if(!select)return;const value=Number(input.value);if(Number.isInteger(value)&&value>0&&value<=Number(input.max)&&![...select.options].some(o=>Number(o.value)===value)){const option=document.createElement('option');option.value=String(value);option.textContent=value+' min (current)';select.append(option)}select.value=input.value}
+function installSoakDurationPicker(input,max){
+ const select=document.createElement('select');select.id=input.id+'Picker';select.required=true;select.setAttribute('aria-label','Duration in minutes');
+ for(let minutes=5;minutes<=max;minutes+=5){const option=document.createElement('option');option.value=String(minutes);option.textContent=minutes+' min';select.append(option)}
+ input.before(select);input.hidden=true;refreshSoakDurationPicker(input);
+ const label=document.querySelector('label[for="'+input.id+'"]');if(label)label.htmlFor=select.id;
+ select.addEventListener('change',()=>{input.value=select.value;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}))});
+ input.addEventListener('change',()=>refreshSoakDurationPicker(input));
+ if(input.id==='minutes'){const mode=()=>{const aeration=$('bathers').value==='0';input.hidden=!aeration;select.hidden=aeration;if(label)label.htmlFor=aeration?input.id:select.id;refreshSoakDurationPicker(input)};$('bathers').addEventListener('change',mode);mode()}
+}
 function setupSoakAeration(){
   const oldLabel=label;label=function(e){return isExposure(e)&&e.exposure.kind==='jets'?'Jets / aeration — '+e.exposure.duration_minutes+' min · air controls '+(e.exposure.air_on?'open':'closed'):oldLabel(e);};
   const form=$('soakForm'),bathers=$('bathers'),shower=$('showered'),jets=$('jetAirUse'),button=form.querySelector('button[type="submit"]');
+  installSoakDurationPicker($('minutes'),720);
   const hint=document.createElement('p');hint.id='aerationHint';hint.className='help';hint.hidden=true;hint.textContent='Jets without bathers. Date/time is when aeration ended (defaults to now); the start is calculated from the duration. Saved as a jets-only exposure for pH trends, not a soak.';bathers.closest('.two').after(hint);
   let zero=false,previousShower=shower.checked,previousJets=jets.value;
   const mode=()=>{const next=bathers.value==='0';if(next&&!zero){previousShower=shower.checked;previousJets=jets.value;}shower.disabled=next;shower.closest('.inline').style.opacity=next?'.45':'';if(next)shower.checked=false;else if(zero){shower.checked=previousShower;jets.value=previousJets;}
