@@ -24,6 +24,10 @@ const partial=run("actionContext([...guidanceEvents,guidanceAcid,{id:'ph-only-re
 const freshFill=run("actionContext([...guidanceEvents,{id:'another-fill',type:'water_change',full:true,new_fill_cycle_id:'new',timestamp:new Date(actionNow-60000).toISOString()}],actionNow)");assert.equal(freshFill.facts.ta_ppm.kind,'unknown');assert.equal(freshFill.facts.ph.kind,'unknown');
 // UI deferral and shortcuts are preferences/navigation only, never records.
 run('write(guidanceEvents);render()');assert.ok($('nextActions'));assert.ok($('tab-chemistry').contains($('nextActions')));const before=w.localStorage.getItem('j365_spa_events_v2'),signature=$('nextActions').dataset.signature,id=$('nextActions').querySelector('[data-action-defer]').dataset.actionDefer;
+assert.deepEqual([...$('nextActions').querySelectorAll(':scope > h2')].map(e=>e.textContent),['Current estimates','Next steps']);
+assert.match($('nextActions').querySelector('.current-estimates').textContent,/TA: ≈60 ppm/);
+assert.doesNotMatch($('nextActions').querySelector('.current-estimates').textContent,/carried forward|TA:.*sample/);
+assert.ok($('nextActions').querySelector('.action-card > p'),'First actionable instruction stays visible rather than moving under Why');
 $('nextActions').querySelector('[data-action-defer]').click();assert.equal(w.localStorage.getItem('j365_spa_events_v2'),before);assert.ok(!$('nextActions').querySelector('[data-action-defer="'+id+'"]'));assert.ok($('nextActions').querySelector('[data-action-reset]'));
 run("write([...guidanceEvents,{id:'unrelated-fc-check',type:'chemistry',fc_ppm:3.2,timestamp:new Date(actionNow-300000).toISOString(),fill_cycle_id:'f'}]);render()");assert.ok(!$('nextActions').querySelector('[data-action-defer="'+id+'"]'),'An unrelated FC sample must not revive deferred TA/pH advice');
 run("write([...guidanceEvents,{id:'new-partial-test',type:'chemistry',ph:8,timestamp:new Date(actionNow-300000).toISOString(),fill_cycle_id:'f'}]);render()");assert.notEqual($('nextActions').dataset.signature,signature);assert.ok($('nextActions').querySelector('[data-action-defer="'+id+'"]'));
