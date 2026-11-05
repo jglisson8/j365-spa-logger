@@ -30,6 +30,14 @@ function guestSuggestedAmount(mL,unit='cup'){
  const digits=unit==='mL'?1:unit==='cup'?3:2,scale=10**digits;
  return Math.floor((mL/PRODUCT_VOLUME[unit]+1e-10)*scale)/scale;
 }
+// Practical measures never round upward or change a recorded amount.
+function guestPracticalDose(plan){
+ if(plan.status!=='dose')return plan;
+ const acid=plan.profile.family==='bisulfate',unit=acid?'tbsp':'cup';
+ const amount=acid?Math.floor(plan.mL/PRODUCT_VOLUME.tbsp+1e-10):[.5,1/3,.25].find(n=>n*PRODUCT_VOLUME.cup<=plan.mL+1e-8);
+ if(!(amount>0))return {...plan,status:'check',message:acid?'The supported acid correction is less than 1 tbsp. No whole-tablespoon dose is suggested; do not round up.':'The supported bleach correction is less than ¼ cup. No cup-size dose is suggested; do not round up.'};
+ return {...plan,calculated_mL:plan.mL,mL:amount*PRODUCT_VOLUME[unit],suggested_amount:amount,suggested_unit:unit,suggested_label:acid?String(amount):amount===.5?'½':amount===.25?'¼':'⅓'};
+}
 function guestAcidPlan(events,products,settings,userId,now=Date.now()){
  const stop=message=>({status:'check',message}),approved=products.find(p=>p.profile.family==='bisulfate');if(!approved)return stop('pH Down is not enabled for this invitation.');
  const sample=events.filter(e=>e.type==='chemistry'&&Number.isFinite(e.ph)&&modelTime(e)!=null&&modelTime(e)<=now+60000).sort(timelineOrder).at(-1);
@@ -56,17 +64,21 @@ function guestAcidPlan(events,products,settings,userId,now=Date.now()){
  const cya=calculatedCya(rows,sample.timestamp,'before'),borates=calculatedBorates(rows,sample.timestamp,'before');
  if(cya.value==null||borates.value==null||cya.issues?.length||borates.issues?.length)return stop('Current-fill CYA/borate inventory is needed before estimating an acid step.');
  const purity=approved.profile.concentration,perML=profileDoseMass(approved.profile,1,'mL');if(purity?.basis!=='active_mass_percent'||!(purity.value>0&&perML>0))return stop('pH Down needs product purity and loose-volume density before calculating.');
- const volume=fillVolume(rows,sample.timestamp),temperature=environmentContext(rows,sample.timestamp).temperature_f??106,needs=[];
- // Compare buffer scenarios; choose the smallest acid demand, never scale pH.
- for(const b of [0,borates.value])for(const c of [0,cya.value]){const state={ta_ppm:taLow,borates_ppm:b,cya_ppm:c,temperature_f:temperature},carbon=carbonFromPh(lower,state);if(!(carbon>0))return stop('Buffer context is inconsistent; confirm TA before acid.');const q=carbonateTerms(target,state),delta=taLow-50000*(carbon*q.fraction+q.other);if(!(delta>0))return stop('No supported acid correction from this chemistry.');needs.push(delta);}
- const correction=acidDoseCalibration(rows,sample.timestamp,approved.profile),taReduction=Math.min(Math.min(...needs)*.5*Math.min(1,correction.factor),1,taLow-40),grams=taReduction*(volume*3.78541)*120.06/(50000*(purity.value/100)),mL=Math.floor(grams/perML*10)/10;
+ const volume=fillVolume(rows,sample.timestamp),temperature=environmentContext(rows,sample.timestamp).temperature_f??106;
+ // Use this fill's usable buffer inventory, not fictitious zero-borate/CYA
+ // scenarios. Conservatism comes from the lower pH/TA, downward calibration
+ // and practical rounding. Acid changes TA; never scale pH linearly.
+ const state={ta_ppm:taLow,borates_ppm:borates.value,cya_ppm:cya.value,temperature_f:temperature},carbon=carbonFromPh(lower,state);
+ if(!(carbon>0))return stop('Buffer context is inconsistent; confirm TA before acid.');
+ const q=carbonateTerms(target,state),demand=taLow-50000*(carbon*q.fraction+q.other);if(!(demand>0))return stop('No supported acid correction from this chemistry.');
+ const correction=acidDoseCalibration(rows,sample.timestamp,approved.profile),taReduction=Math.min(demand*Math.min(1,correction.factor),taLow-40),grams=taReduction*(volume*3.78541)*120.06/(50000*(purity.value/100)),mL=Math.floor(grams/perML*10)/10;
  const used=events.filter(e=>e.type==='chemical_addition'&&e.product_id===approved.profile.id&&e.guest_actor?.user_id===userId&&Date.parse(e.created_at)>now-86400000).reduce((s,e)=>s+e.amount*(PRODUCT_VOLUME[e.unit]||0),0);
- if(!(mL>0&&approved.max_single_mL>0&&approved.max_daily_mL>0)||mL>approved.max_single_mL+.00001||used+mL>approved.max_daily_mL+.00001)return stop('The small acid step exceeds the remaining invitation limit. Do not guess a larger dose.');
- return {...base,status:'dose',mL,volume_gallons:volume,ta_lower:taLow,ta_reduction:taReduction,correction:correction.factor,message:'Small partial correction toward pH '+target.toFixed(1)+', not a guaranteed endpoint. Mix for at least 20 minutes, then save a fresh FC/pH strip test before considering more. Acid steps reduce TA; repeated steps may require another TA test.'};
+ if(!(mL>0&&approved.max_single_mL>0&&approved.max_daily_mL>0)||mL>approved.max_single_mL+.00001||used+mL>approved.max_daily_mL+.00001)return stop('The calculated acid correction exceeds the remaining invitation limit. Do not guess a larger dose.');
+ return {...base,status:'dose',mL,volume_gallons:volume,ta_lower:taLow,ta_reduction:taReduction,correction:correction.factor,cya_ppm:cya.value,borates_ppm:borates.value,temperature_f:temperature,message:'Calculated correction toward pH '+target.toFixed(1)+' using the conservative starting range and this fill’s buffer inventory—not a guaranteed endpoint. Add one supported dose, mix for at least 20 minutes (longer if the label says), then retest before soaking. Do not automatically repeat the dose.'};
 }
 function refreshGuestDoseAdvice(){
  if(!$('guestDoseAdvice'))return;
- const rows=activeEvents(),selected=guestContext?.products.find(p=>p.profile.id===$('guestProduct').value),acid=selected?.profile.family==='bisulfate',planner=acid?guestAcidPlan:guestBleachPlan,plan=planner(rows,guestContext?.products||[],config,session?.user_id);
+ const rows=activeEvents(),selected=guestContext?.products.find(p=>p.profile.id===$('guestProduct').value),acid=selected?.profile.family==='bisulfate',planner=(...args)=>guestPracticalDose((acid?guestAcidPlan:guestBleachPlan)(...args)),plan=planner(rows,guestContext?.products||[],config,session?.user_id);
  const box=$('guestDoseAdvice');box.replaceChildren();
  $('guestBleachShortcut').hidden=!guestContext?.products.some(p=>p.profile.family==='hypochlorite')||!!guestCorrection;
  if(guestCorrection){box.textContent='Correct the amount actually added. This does not recommend a new dose.';return;}
@@ -74,18 +86,18 @@ function refreshGuestDoseAdvice(){
  const summary=document.createElement('p');summary.textContent=plan.message;
  if(plan.status!=='dose'){box.append(summary);return;}
  if(selected.profile.id!==plan.profile.id){box.textContent='Select '+plan.profile.name+' to use its approved calculation.';return;}
- const unit=$('guestUnit').value,amount=guestSuggestedAmount(plan.mL,unit);
+ const unit=plan.suggested_unit,amount=plan.suggested_amount;
  if(!(amount>0)){box.textContent='Calculated volume is too small for this unit. Choose tsp or mL.';return;}
- const quantity=document.createElement('strong');quantity.style.cssText='display:block;margin-bottom:10px';quantity.textContent='≈'+amount+' '+unit+' '+plan.profile.name;
- const context=document.createElement('p');context.className='help';context.textContent=acid?'pH lower working bound ≈'+plan.assumed_ph.toFixed(1)+' ('+plan.source+') · partial step toward '+plan.target.toFixed(1)+' · '+plan.volume_gallons+' gal':'FC '+plan.assumed_fc+' ppm ('+plan.source+') → target '+plan.target+' ppm'+(plan.target_default?' (default; not yet set by owner)':'')+' · '+plan.volume_gallons+' gal';
+ const quantity=document.createElement('strong');quantity.style.cssText='display:block;margin-bottom:10px';quantity.textContent=plan.suggested_label+' '+unit+' '+plan.profile.name;
+ const context=document.createElement('p');context.className='help';context.textContent=acid?'pH lower working bound ≈'+plan.assumed_ph.toFixed(1)+' ('+plan.source+') · calculated correction toward '+plan.target.toFixed(1)+' · '+plan.volume_gallons+' gal':'FC '+plan.assumed_fc+' ppm ('+plan.source+') → target '+plan.target+' ppm'+(plan.target_default?' (default; not yet set by owner)':'')+' · '+plan.volume_gallons+' gal';
  if(acid&&unit==='cup')context.textContent+=' · ≈'+(amount*48).toFixed(2)+' tsp (same amount)';
  const use=document.createElement('button');use.id='guestUseSuggested';use.type='button';use.className='secondary';use.textContent='Use this amount';
  use.onclick=()=>{
   if(guestBusy||guestCorrection)return;
   const current=planner(activeEvents(),guestContext?.products||[],config,session?.user_id);
   if(current.status!=='dose'||current.sample_id!==plan.sample_id||current.mL!==plan.mL||$('guestProduct').value!==plan.profile.id){refreshGuestDoseAdvice();guestStatus('Test or product changed. Review the updated suggestion.');return;}
-  if($('guestAmount').value&&Number($('guestAmount').value)!==amount&&!confirm('Replace the entered amount with this suggestion? Nothing is saved yet.'))return;
-  $('guestAmount').value=amount;guestPending=null;$('guestConfirmAdded').checked=false;$('guestConfirmAdded').required=true;$('guestConfirmRow').hidden=false;
+  if($('guestAmount').value&&(Number($('guestAmount').value)!==amount||$('guestUnit').value!==unit)&&!confirm('Replace the entered amount and unit with this suggestion? Nothing is saved yet.'))return;
+  $('guestAmount').value=amount;$('guestUnit').value=unit;guestPending=null;$('guestConfirmAdded').checked=false;$('guestConfirmAdded').required=true;$('guestConfirmRow').hidden=false;
   guestStatus('Amount filled in—not saved. After an adult adds it, confirm the amount and tap Save dose.');
   if(typeof refreshGuestWorkflow==='function')refreshGuestWorkflow();
  };
@@ -99,7 +111,7 @@ function setupGuestDoseTarget(){
  const refresh=()=>{if(!dirty)$('guestFcTarget').value=config?.targets?.fc_target_ppm??5;if(!calculatorEdited){$('targetFc').value=config?.targets?.fc_target_ppm??5;calculate();}if(!dirty)$('guestFcTargetStatus').textContent=config?.targets?.fc_target_ppm==null?'Current default: 5 ppm · save to make it explicit':generalPatch.fc_target_ppm?'Saved on this device · sync pending':'Saved target: '+config.targets.fc_target_ppm+' ppm';};
  $('guestSaveFcTarget').onclick=async()=>{const input=$('guestFcTarget'),value=Number(input.value);if(!input.value||!Number.isFinite(value)||value<.1||value>10){$('guestFcTargetStatus').textContent='Enter an FC target from 0.1 to 10 ppm.';return;}stageConfigField('fc_target_ppm',value,base??config);config=applyPendingConfig(config||{schema_version:2,spa:{model:'Jacuzzi J-365',volume_gallons:395}});writeConfigState(config,true);dirty=false;base=null;calculatorEdited=false;render();if(session){const ok=await syncConfig();refresh();if(!ok)$('guestFcTargetStatus').textContent='Saved on this device · sync pending';}};
  box.querySelector('h3').textContent='Owner bleach dosing target';box.querySelector('p.help').textContent='Owner calculator target. Guest goals below can differ; chart limits and invitation caps are separate.';
- const goals=document.createElement('section');goals.id='guestGoalSettings';goals.className='calcbox';goals.innerHTML='<h3>Guest dosing goals</h3><label for="guestGoalPh">pH goal</label><input id="guestGoalPh" type="number" min="7.2" max="7.8" step="0.1"><label for="guestGoalFc">FC goal · ppm</label><input id="guestGoalFc" type="number" min="0.1" max="10" step="0.1"><p class="help">Defaults: pH 7.4 · FC 7.5 ppm. Acid remains a small partial step only when the strip range clearly exceeds 7.8; no promise of an exact endpoint. Dose limits still apply.</p><button id="guestSaveGoals" type="button" class="secondary">Save guest goals</button><p id="guestGoalStatus" role="status"></p>';box.after(goals);
+ const goals=document.createElement('section');goals.id='guestGoalSettings';goals.className='calcbox';goals.innerHTML='<h3>Guest dosing goals</h3><label for="guestGoalPh">pH goal</label><input id="guestGoalPh" type="number" min="7.2" max="7.8" step="0.1"><label for="guestGoalFc">FC goal · ppm</label><input id="guestGoalFc" type="number" min="0.1" max="10" step="0.1"><p class="help">Defaults: pH 7.4 · FC 7.5 ppm. Acid uses a conservative calculated correction only when the strip range clearly exceeds 7.8; no promise of an exact endpoint. Dose limits still apply.</p><button id="guestSaveGoals" type="button" class="secondary">Save guest goals</button><p id="guestGoalStatus" role="status"></p>';box.after(goals);
  let goalsDirty=false,goalsBase=null;for(const id of ['guestGoalPh','guestGoalFc'])$(id).oninput=()=>{if(!goalsDirty)goalsBase=configClone(config);goalsDirty=true;};
  const refreshGoals=()=>{if(goalsDirty)return;$('guestGoalPh').value=config?.targets?.guest_ph_target??7.4;$('guestGoalFc').value=config?.targets?.guest_fc_target_ppm??config?.targets?.fc_target_ppm??7.5;$('guestGoalStatus').textContent=generalPatch.guest_ph_target||generalPatch.guest_fc_target_ppm?'Saved on this device · sync pending':'Guest goals: pH '+$('guestGoalPh').value+' · FC '+$('guestGoalFc').value+' ppm';};
  $('guestSaveGoals').onclick=async()=>{const ph=Number($('guestGoalPh').value),fc=Number($('guestGoalFc').value);if(!Number.isFinite(ph)||ph<7.2||ph>7.8||!Number.isFinite(fc)||fc<.1||fc>10){$('guestGoalStatus').textContent='Use pH 7.2–7.8 and FC 0.1–10 ppm.';return;}for(const [key,value]of [['guest_ph_target',ph],['guest_fc_target_ppm',fc]])stageConfigField(key,value,goalsBase??config);config=applyPendingConfig(config||{schema_version:2,spa:{model:'Jacuzzi J-365',volume_gallons:395}});writeConfigState(config,true);goalsDirty=false;goalsBase=null;render();if(session){await syncConfig();refreshGoals();}};

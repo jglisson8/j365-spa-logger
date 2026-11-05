@@ -20,7 +20,7 @@ function setupGuestWorkflow(){
  document.addEventListener('guest-entry-saved',({detail:{event,refreshed}})=>{
   if(event.supersedes_event_id&&event.type!=='chemistry'){guestFlow={phase:'manual',sample_id:null};refreshGuestWorkflow();guestBaseline=guestSignature();return;}
   if(event.type==='chemistry'&&refreshed){
-   const rows=activeEvents(),products=guestContext?.products||[],bleach=guestBleachPlan(rows,products,config,session?.user_id),acid=guestAcidPlan(rows,products,config,session?.user_id);
+   const rows=activeEvents(),products=guestContext?.products||[],bleach=guestPracticalDose(guestBleachPlan(rows,products,config,session?.user_id)),acid=guestPracticalDose(guestAcidPlan(rows,products,config,session?.user_id));
    const b=products.find(p=>p.profile.family==='hypochlorite'),a=products.find(p=>p.profile.family==='bisulfate');
    // Address bleach first. A blocked bleach calculation must not be bypassed
    // by automatically offering an acid dose from the same test.
@@ -56,12 +56,12 @@ function refreshGuestWorkflow(){
  const rows=activeEvents(),sample=rows.find(e=>e.id===guestFlow.sample_id),products=guestContext?.products||[],selected=products.find(p=>p.profile.id===$('guestProduct').value);
  $('guestFlowTitle').textContent='Test saved · next step';
  $('guestFlowSample').textContent=sample?Object.entries(sample.strip_observations?.readings||{}).map(([k,r])=>({fc_ppm:'FC',ph:'pH',ta_ppm:'TA'}[k])+' '+r.choice).join(' · ')+' · '+sample.timestamp.replace('T',' '):'Test saved. Refresh the connection before calculating.';
- const plan=selected?(selected.profile.family==='bisulfate'?guestAcidPlan:guestBleachPlan)(rows,products,config,session?.user_id):null,actualDraft=Number($('guestAmount').value)>0,ready=!!selected&&(plan?.status==='dose'||actualDraft);
- const acid=products.some(p=>p.profile.family==='bisulfate')?guestAcidPlan(rows,products,config,session?.user_id):null;
- const bleach=products.some(p=>p.profile.family==='hypochlorite')?guestBleachPlan(rows,products,config,session?.user_id):null;
+ const plan=selected?guestPracticalDose((selected.profile.family==='bisulfate'?guestAcidPlan:guestBleachPlan)(rows,products,config,session?.user_id)):null,actualDraft=Number($('guestAmount').value)>0,ready=!!selected&&(plan?.status==='dose'||actualDraft);
+ const acid=products.some(p=>p.profile.family==='bisulfate')?guestPracticalDose(guestAcidPlan(rows,products,config,session?.user_id)):null;
+ const bleach=products.some(p=>p.profile.family==='hypochlorite')?guestPracticalDose(guestBleachPlan(rows,products,config,session?.user_id)):null;
  const noAdjustment=!!(bleach||acid)&&(!bleach||bleach.status==='none')&&(!acid||acid.status==='none');
  $('guestFlowTitle').textContent=actualDraft?'Confirm the dose':plan?.status==='dose'?'Next: add '+(selected.profile.family==='hypochlorite'?'bleach':'pH Down'):noAdjustment?'No dose suggested':'One more check';
- $('guestFlowNext').textContent=actualDraft&&plan?.status!=='dose'?'The calculation changed. Your entered amount is unchanged. Save only if an adult actually added it.':actualDraft?'Check the amount and unit. After an adult adds it, tick the box and tap Save dose.':ready?(selected.profile.family==='hypochlorite'&&acid?.status==='dose'?'Bleach first. An adult adds one chemical at a time. Mix and retest before pH Down.':'Use the suggested amount below. Only an adult should handle chemicals.'):!products.length?'This guest access has no approved products. Your test is saved; ask the owner to enable dosing.':plan?.status==='none'?'No dose suggested for '+selected.profile.name+'. '+(acid&&acid.status!=='dose'?acid.message:''):'Read the message below before adding anything.';
+ $('guestFlowNext').textContent=actualDraft&&plan?.status!=='dose'?'The calculation changed. Your entered amount is unchanged. Save only if an adult actually added it.':actualDraft?'Check the amount and unit. After an adult adds it, tick the box and tap Save dose.':ready?(selected.profile.family==='hypochlorite'&&acid?.status==='dose'?'Bleach first. Keep the cover open with Jets 1 and 2 running for at least 20 minutes (longer if the label says), then retest before pH Down. After pH Down, run both jets with the cover open for another 20 minutes (longer if the label says), then retest before soaking. Never add them together.':'Use the suggested amount below. Only an adult should handle chemicals.'):!products.length?'This guest access has no approved products. Your test is saved; ask the owner to enable dosing.':plan?.status==='none'?'No dose suggested for '+selected.profile.name+'. '+(acid&&acid.status!=='dose'?acid.message:''):'Read the message below before adding anything.';
  $('guestFlowNewTest').textContent='Log another test';
  delete $('guestFlowNewTest').dataset.completeParameter;
  if(!ready&&plan?.status==='check'&&sample){const missing=sample.fc_ppm==null?'fc_ppm':sample.ph==null?'ph':/\bTA\b|alkalinity/i.test(plan.message)?'ta_ppm':null;if(missing){$('guestFlowNewTest').textContent='Add '+({fc_ppm:'FC',ph:'pH',ta_ppm:'alkalinity (TA)'}[missing])+' to this test';$('guestFlowNewTest').dataset.completeParameter=missing;}}

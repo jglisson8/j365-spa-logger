@@ -4,7 +4,7 @@ const now=Math.floor(Date.now()/60000)*60000,minute=60000,at=t=>({timestamp:w.ev
 w.eval('config='+JSON.stringify(settings));
 const fill={id:'fill-acid',type:'water_change',full:true,new_fill_cycle_id:'fill-acid',gallons:395,starting_cya_ppm:30,starting_borates_ppm:40,...at(now-86400000)},ta={id:'ta-before',fill_cycle_id:'fill-acid',type:'chemistry',ta_ppm:100,...at(now-60*minute)},sample={id:'ph-now',fill_cycle_id:'fill-acid',type:'chemistry',ph:8.4,fc_ppm:1,measurement_method:'test_strip',measurement_sources:{ph:'test_strip',fc_ppm:'test_strip'},strip_observations:{profile_id:'aquanexo-3in1-v1',readings:{ph:{choice:'8.4',...w.stripChoiceRange('ph','8.4')},fc_ppm:{choice:'1',...w.stripChoiceRange('fc_ppm','1')}}},...at(now-minute)},rows=[fill,ta,sample];
 const plan=(events=rows,approved=products)=>w.guestAcidPlan(events.map(e=>({...e,time_zone:'America/Denver'})),approved,settings,'practice-guest',now);
-const frozen=JSON.stringify(rows),r=plan();assert.equal(r.status,'dose',r.message);assert.equal(r.assumed_ph,8.1);assert.equal(r.target,7.4);assert.ok(r.mL>0);assert.ok(r.ta_reduction<=1);assert.ok(r.ta_lower-r.ta_reduction>=40);assert.equal(JSON.stringify(rows),frozen);
+const frozen=JSON.stringify(rows),r=plan();assert.equal(r.status,'dose',r.message);assert.equal(r.assumed_ph,8.1);assert.equal(r.target,7.4);assert.ok(r.mL>0);assert.ok(r.ta_reduction>1,'No arbitrary one-ppm micro-dose cap');assert.ok(r.mL>=w.eval('PRODUCT_VOLUME.tbsp'));assert.ok(r.ta_lower-r.ta_reduction>=40);assert.equal(JSON.stringify(rows),frozen);
 const lower={...sample,ph:7.8,strip_observations:{...sample.strip_observations,readings:{...sample.strip_observations.readings,ph:{choice:'7.8',...w.stripChoiceRange('ph','7.8')}}}};assert.equal(plan([fill,ta,lower]).status,'none');
 assert.equal(plan([fill,{...ta,ta_ppm:40},sample]).status,'check');assert.equal(plan([fill,sample]).status,'check');assert.equal(plan([fill,{...ta,...at(now-31*86400000)},sample]).status,'check');
 assert.equal(plan(rows,[]).status,'check');assert.equal(plan(rows,[{...products[0],profile:{...profile,density:null}}]).status,'check');assert.equal(plan(rows,[{...products[0],max_single_mL:.01}]).status,'check');
@@ -13,6 +13,20 @@ for(const type of ['soak','chemical_addition','water_change','water_top_off'])as
 const dose={id:'acid-before',type:'chemical_addition',fill_cycle_id:'fill-acid',product:profile.name,product_profile:profile,product_id:profile.id,amount:.1,unit:'tsp',guest_actor:{user_id:'practice-guest'},...at(now-10*minute)};assert.equal(plan([fill,ta,dose,sample]).status,'check','Immediate post-dose test cannot permit repeat acid');
 assert.equal(plan([fill,ta,{...sample,fc_ppm:20,measurement_method:'paired',measurement_sources:{ph:'test_strip',fc_ppm:'taylor'}}]).status,'check');
 const noBuffers=[ta,sample];w.eval('config={schema_version:2,spa:{volume_gallons:395}}');assert.equal(plan(noBuffers).status,'check');w.eval('config='+JSON.stringify(settings));
+// Practical doses across low/high TA and fill inventories preserve the
+// lower-bound equilibrium endpoint and TA floor, without inventing drops.
+let supported=0;
+for(const alkalinity of [60,80,100,140])for(const borates of [0,40])for(const cya of [0,30,60]){
+ const input=[{...fill,starting_borates_ppm:borates,starting_cya_ppm:cya},{...ta,ta_ppm:alkalinity},sample],raw=plan(input);
+ if(raw.status!=='dose')continue;
+ assert.equal(raw.borates_ppm,borates);assert.equal(raw.cya_ppm,cya);assert.equal(raw.acid_demand_drops,undefined);
+ const practical=w.guestPracticalDose(raw);if(practical.status!=='dose')continue;supported++;
+ assert.ok(practical.mL<=raw.mL+1e-8);assert.ok(practical.mL<=products[0].max_single_mL);
+ const state={ta_ppm:raw.ta_lower,borates_ppm:borates,cya_ppm:cya,temperature_f:raw.temperature_f},carbon=w.carbonFromPh(raw.assumed_ph,state),delta=w.profileDoseMass(profile,practical.mL,'mL')*(profile.concentration.value/100)*50000/(raw.volume_gallons*3.78541*120.06),after=w.phFromCarbon({...state,carbon,ta_ppm:state.ta_ppm-delta});
+ assert.ok(state.ta_ppm-delta>=40-1e-8);assert.ok(after>=raw.target-1e-6,'Do not overshoot target in the conservative equilibrium scenario');assert.ok(after<raw.assumed_ph);
+}
+assert.ok(supported>=10,'Multiple TA/CYA/borate combinations provide a practical correction');
+assert.ok(w.guestPracticalDose(r).suggested_amount>=3,'Buffered 8.4-strip scenario is not forced into tiny repeat doses');
 // The same mass-to-volume conversion is used for every selectable unit, and
 // the displayed dose always rounds down rather than increasing the correction.
 for(const unit of ['cup','tbsp','tsp','fl oz','mL'])assert.ok(w.guestSuggestedAmount(r.mL,unit)*w.eval('PRODUCT_VOLUME')[unit]<=r.mL+.00001);

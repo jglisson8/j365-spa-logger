@@ -46,6 +46,8 @@ the full workflow. Without one, dosing uses saved products with clearly labeled
 preview-only limits; selecting an invitation uses its exact approved products and
 limits. Preview never saves real entries or grants access.
 See [v6.69 guest workflow notes](docs/guest-workflow-6.69.0.md).
+For practical cup/tablespoon suggestions and the revised guest acid calculation,
+see [v6.70 dosing notes](docs/guest-practical-doses-6.70.0.md).
 
 For the current source-water profile, practice guest mode, compact forecast
 status and accuracy summary, see [v6.64 readiness notes](docs/readiness-6.64.md).
