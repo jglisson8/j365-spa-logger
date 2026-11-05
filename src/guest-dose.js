@@ -71,12 +71,12 @@ function refreshGuestDoseAdvice(){
  $('guestBleachShortcut').hidden=!guestContext?.products.some(p=>p.profile.family==='hypochlorite')||!!guestCorrection;
  if(guestCorrection){box.textContent='Correct the amount actually added. This does not recommend a new dose.';return;}
  if(!selected){box.textContent='Select an approved product to check its calculated dose.';return;}
- const summary=document.createElement('p');summary.textContent=plan.message;box.append(summary);
- if(plan.status!=='dose')return;
+ const summary=document.createElement('p');summary.textContent=plan.message;
+ if(plan.status!=='dose'){box.append(summary);return;}
  if(selected.profile.id!==plan.profile.id){box.textContent='Select '+plan.profile.name+' to use its approved calculation.';return;}
  const unit=$('guestUnit').value,amount=guestSuggestedAmount(plan.mL,unit);
  if(!(amount>0)){box.textContent='Calculated volume is too small for this unit. Choose tsp or mL.';return;}
- const quantity=document.createElement('strong');quantity.textContent='≈'+amount+' '+unit+' '+plan.profile.name;
+ const quantity=document.createElement('strong');quantity.style.cssText='display:block;margin-bottom:10px';quantity.textContent='≈'+amount+' '+unit+' '+plan.profile.name;
  const context=document.createElement('p');context.className='help';context.textContent=acid?'pH lower working bound ≈'+plan.assumed_ph.toFixed(1)+' ('+plan.source+') · partial step toward '+plan.target.toFixed(1)+' · '+plan.volume_gallons+' gal':'FC '+plan.assumed_fc+' ppm ('+plan.source+') → target '+plan.target+' ppm'+(plan.target_default?' (default; not yet set by owner)':'')+' · '+plan.volume_gallons+' gal';
  if(acid&&unit==='cup')context.textContent+=' · ≈'+(amount*48).toFixed(2)+' tsp (same amount)';
  const use=document.createElement('button');use.id='guestUseSuggested';use.type='button';use.className='secondary';use.textContent='Use this amount';
@@ -86,10 +86,10 @@ function refreshGuestDoseAdvice(){
   if(current.status!=='dose'||current.sample_id!==plan.sample_id||current.mL!==plan.mL||$('guestProduct').value!==plan.profile.id){refreshGuestDoseAdvice();guestStatus('Test or product changed. Review the updated suggestion.');return;}
   if($('guestAmount').value&&Number($('guestAmount').value)!==amount&&!confirm('Replace the entered amount with this suggestion? Nothing is saved yet.'))return;
   $('guestAmount').value=amount;guestPending=null;$('guestConfirmAdded').checked=false;$('guestConfirmAdded').required=true;$('guestConfirmRow').hidden=false;
-  guestStatus('Amount filled in—not saved. Add the dose, confirm the actual amount, then Save.');
+  guestStatus('Amount filled in—not saved. After an adult adds it, confirm the amount and tap Save dose.');
   if(typeof refreshGuestWorkflow==='function')refreshGuestWorkflow();
  };
- box.prepend(quantity,context);box.append(use);
+ const details=document.createElement('details'),heading=document.createElement('summary');heading.textContent='How this was calculated';details.append(heading,summary,context);box.append(quantity,use,details);
 }
 function setupGuestDoseTarget(){
  const box=document.createElement('section');box.id='guestDoseTargetSettings';box.className='calcbox';box.innerHTML='<h3>Bleach dosing target</h3><label for="guestFcTarget">FC target · ppm</label><input id="guestFcTarget" type="number" min="0.1" max="10" step="0.1"><p class="help">Shared by owner and guest bleach calculators. Separate from chart limits; invitation dose caps still apply.</p><button id="guestSaveFcTarget" type="button" class="secondary">Save dosing target</button><p id="guestFcTargetStatus" role="status"></p>';$('guestManagement').prepend(box);

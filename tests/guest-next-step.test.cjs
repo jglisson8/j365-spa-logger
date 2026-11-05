@@ -1,0 +1,13 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),{JSDOM,VirtualConsole}=require('jsdom'),tick=()=>new Promise(r=>setTimeout(r,50));
+async function scenario(readings,check){
+ const errors=[],vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));
+ const dom=new JSDOM(fs.readFileSync('index.html','utf8'),{url:'https://spa.test/guest?practice=1&source=demo',runScripts:'dangerously',virtualConsole:vc,beforeParse(w){w.Response=Response;w.scrollTo=()=>{};w.confirm=()=>true;w.fetch=async()=>{throw Error('No real requests allowed')};}}),w=dom.window,$=id=>w.document.getElementById(id),submit=()=> $('guestForm').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));
+ try{await tick();await tick();for(const [k,v]of Object.entries(readings))$('guest-'+k).value=v;submit();await tick();await tick();await check({w,$,submit});assert.deepEqual(errors,[]);}finally{w.close()}
+}
+(async()=>{
+ await scenario({fc_ppm:'5',ph:'8.4',ta_ppm:'80'},async({w,$})=>{assert.equal($('guestFlowTitle').textContent,'Next: add pH Down');assert.equal($('guestProduct').value,'legacy-acid');assert.ok($('guestUseSuggested'));assert.equal($('guestDoseAdvice').querySelector('details').open,false);assert.equal(w.eval("activeEvents().filter(e=>e.guest_actor&&e.type==='chemical_addition').length"),0);});
+ await scenario({fc_ppm:'5',ph:'7.6'},async({$})=>{assert.equal($('guestFlowTitle').textContent,'No dose suggested');assert.equal($('guestDose').hidden,true);assert.equal($('guestSubmit').hidden,true);assert.doesNotMatch($('guestFlowNext').textContent,/enjoy|safe to soak/i);});
+ await scenario({fc_ppm:'5'},async({w,$,submit})=>{assert.equal($('guestFlowNewTest').dataset.completeParameter,'ph');assert.match($('guestFlowNewTest').textContent,/Add pH to this test/);const old=w.eval('guestFlow.sample_id');$('guestFlowNewTest').click();assert.equal(w.eval('guestCorrection'),old);$('guest-ph').value='8.4';$('guest-ta_ppm').value='80';submit();await tick();await tick();assert.equal($('guestFlowTitle').textContent,'Next: add pH Down');assert.equal(w.eval("activeEvents().filter(e=>e.guest_actor&&e.type==='chemistry').length"),1,'Completing a test corrects it rather than duplicating it');});
+ await scenario({fc_ppm:'10',ph:'6.8'},async({$})=>{assert.equal($('guestFlowWarning').hidden,false);assert.match($('guestFlowWarning').textContent,/Do not soak/);assert.equal($('guestUseSuggested'),null);});
+ console.log('PASS: automatic acid/no-dose/missing-parameter next steps, same-test completion, collapsed technical details, low-pH warning and no phantom doses');
+})().catch(e=>{console.error(e);process.exitCode=1});

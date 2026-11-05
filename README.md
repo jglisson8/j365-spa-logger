@@ -42,9 +42,10 @@ are unchanged; current projections recompute from the new assumption.
 
 Service → Guest invitations → **Preview guest mode · real data** loads the signed-in
 owner's saved history in a temporary guest view. No invitation is needed for
-tests/soaks/Trends; select an unexpired invitation to rehearse its approved dose
-products and limits. No automatic synthetic-data fallback, no real preview saves.
-See [v6.68 real-data preview notes](docs/guest-preview-6.68.0.md).
+the full workflow. Without one, dosing uses saved products with clearly labeled
+preview-only limits; selecting an invitation uses its exact approved products and
+limits. Preview never saves real entries or grants access.
+See [v6.69 guest workflow notes](docs/guest-workflow-6.69.0.md).
 
 For the current source-water profile, practice guest mode, compact forecast
 status and accuracy summary, see [v6.64 readiness notes](docs/readiness-6.64.md).

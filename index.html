@@ -146,7 +146,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.68.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.69.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -2001,12 +2001,12 @@ function refreshGuestDoseAdvice(){
  $('guestBleachShortcut').hidden=!guestContext?.products.some(p=>p.profile.family==='hypochlorite')||!!guestCorrection;
  if(guestCorrection){box.textContent='Correct the amount actually added. This does not recommend a new dose.';return;}
  if(!selected){box.textContent='Select an approved product to check its calculated dose.';return;}
- const summary=document.createElement('p');summary.textContent=plan.message;box.append(summary);
- if(plan.status!=='dose')return;
+ const summary=document.createElement('p');summary.textContent=plan.message;
+ if(plan.status!=='dose'){box.append(summary);return;}
  if(selected.profile.id!==plan.profile.id){box.textContent='Select '+plan.profile.name+' to use its approved calculation.';return;}
  const unit=$('guestUnit').value,amount=guestSuggestedAmount(plan.mL,unit);
  if(!(amount>0)){box.textContent='Calculated volume is too small for this unit. Choose tsp or mL.';return;}
- const quantity=document.createElement('strong');quantity.textContent='≈'+amount+' '+unit+' '+plan.profile.name;
+ const quantity=document.createElement('strong');quantity.style.cssText='display:block;margin-bottom:10px';quantity.textContent='≈'+amount+' '+unit+' '+plan.profile.name;
  const context=document.createElement('p');context.className='help';context.textContent=acid?'pH lower working bound ≈'+plan.assumed_ph.toFixed(1)+' ('+plan.source+') · partial step toward '+plan.target.toFixed(1)+' · '+plan.volume_gallons+' gal':'FC '+plan.assumed_fc+' ppm ('+plan.source+') → target '+plan.target+' ppm'+(plan.target_default?' (default; not yet set by owner)':'')+' · '+plan.volume_gallons+' gal';
  if(acid&&unit==='cup')context.textContent+=' · ≈'+(amount*48).toFixed(2)+' tsp (same amount)';
  const use=document.createElement('button');use.id='guestUseSuggested';use.type='button';use.className='secondary';use.textContent='Use this amount';
@@ -2016,10 +2016,10 @@ function refreshGuestDoseAdvice(){
   if(current.status!=='dose'||current.sample_id!==plan.sample_id||current.mL!==plan.mL||$('guestProduct').value!==plan.profile.id){refreshGuestDoseAdvice();guestStatus('Test or product changed. Review the updated suggestion.');return;}
   if($('guestAmount').value&&Number($('guestAmount').value)!==amount&&!confirm('Replace the entered amount with this suggestion? Nothing is saved yet.'))return;
   $('guestAmount').value=amount;guestPending=null;$('guestConfirmAdded').checked=false;$('guestConfirmAdded').required=true;$('guestConfirmRow').hidden=false;
-  guestStatus('Amount filled in—not saved. Add the dose, confirm the actual amount, then Save.');
+  guestStatus('Amount filled in—not saved. After an adult adds it, confirm the amount and tap Save dose.');
   if(typeof refreshGuestWorkflow==='function')refreshGuestWorkflow();
  };
- box.prepend(quantity,context);box.append(use);
+ const details=document.createElement('details'),heading=document.createElement('summary');heading.textContent='How this was calculated';details.append(heading,summary,context);box.append(quantity,use,details);
 }
 function setupGuestDoseTarget(){
  const box=document.createElement('section');box.id='guestDoseTargetSettings';box.className='calcbox';box.innerHTML='<h3>Bleach dosing target</h3><label for="guestFcTarget">FC target · ppm</label><input id="guestFcTarget" type="number" min="0.1" max="10" step="0.1"><p class="help">Shared by owner and guest bleach calculators. Separate from chart limits; invitation dose caps still apply.</p><button id="guestSaveFcTarget" type="button" class="secondary">Save dosing target</button><p id="guestFcTargetStatus" role="status"></p>';$('guestManagement').prepend(box);
@@ -2208,21 +2208,21 @@ let guestFlow={phase:'test',sample_id:null};
 function setupGuestWorkflow(){
  if(!guestPage()||!$('guestForm'))return;
  const style=document.createElement('style');style.textContent='.guest-mode #guestActivities{grid-template-columns:repeat(2,minmax(0,1fr))}.guest-mode #guestChooseDose{font-size:13px;padding:9px 12px;margin:0 0 12px}.guest-flow-review{border-left:3px solid #79d7c3;padding:4px 12px;margin:12px 0}.guest-flow-review p{margin:6px 0}.guest-flow-review h3{margin:4px 0;font-size:17px}';document.head.append(style);
- $('guestChooseTest').textContent='Test & dose';
- const manual=$('guestChooseDose');$('guestActivities').after(manual);manual.textContent='Log a dose already added';manual.className='secondary';
- const review=document.createElement('section');review.id='guestFlowReview';review.className='guest-flow-review';review.hidden=true;review.setAttribute('aria-live','polite');review.innerHTML='<h3 id="guestFlowTitle"></h3><p id="guestFlowSample" class="help"></p><p id="guestFlowNext"></p><button id="guestFlowNewTest" type="button" class="secondary">New test</button>';manual.after(review);
+ $('guestChooseTest').textContent='Check water';
+ const manual=$('guestChooseDose'),other=document.createElement('details');other.id='guestOtherOptions';other.innerHTML='<summary>Other options</summary><p class="help">Use manual entry only for a dose already added outside this water check.</p>';$('guestSubmit').after(other);other.append(manual);manual.textContent='Enter a dose manually';manual.className='secondary';
+ const review=document.createElement('section');review.id='guestFlowReview';review.className='guest-flow-review';review.hidden=true;review.setAttribute('aria-live','polite');review.innerHTML='<h3 id="guestFlowTitle"></h3><p id="guestFlowSample" class="help"></p><p id="guestFlowNext"></p><p id="guestFlowWarning" class="chart-warning" hidden></p><button id="guestFlowNewTest" type="button" class="secondary">New test</button>';$('guestActivities').after(review);
  function showKind(type){$('guestKind').value=type;$('guestKind').dispatchEvent(new Event('change',{bubbles:true}));}
  function startTest(){guestFlow={phase:'test',sample_id:null};showKind('chemistry');}
- manual.onclick=()=>{if(guestBusy||guestCorrection){guestStatus('Save or cancel the current entry first.');return;}guestFlow={phase:'manual',sample_id:null};$('guestConfirmAdded').required=false;$('guestConfirmAdded').checked=false;$('guestConfirmRow').hidden=true;showKind('chemical_addition');};
+ manual.onclick=()=>{if(guestBusy||guestCorrection){guestStatus('Save or cancel the current entry first.');return;}guestFlow={phase:'manual',sample_id:null};$('guestConfirmAdded').required=true;$('guestConfirmAdded').checked=false;$('guestConfirmRow').hidden=false;showKind('chemical_addition');};
  $('guestChooseTest').addEventListener('click',()=>{if(!guestBusy&&!guestCorrection)startTest();});
  $('guestChooseSoak').addEventListener('click',()=>{if(!guestBusy&&!guestCorrection){guestFlow={phase:'soak',sample_id:null};refreshGuestWorkflow();}});
- $('guestFlowNewTest').onclick=()=>{if(guestBusy||guestCorrection)return;if(Number($('guestAmount').value)>0&&!confirm('Leave this unsaved dose entry? Nothing will be recorded.'))return;startTest();};
+ $('guestFlowNewTest').onclick=()=>{if(guestBusy||guestCorrection)return;if(Number($('guestAmount').value)>0&&!confirm('Leave this unsaved dose entry? Nothing will be recorded.'))return;const parameter=$('guestFlowNewTest').dataset.completeParameter;if(parameter){const edit=[...$('guestOwnEntries').querySelectorAll('[data-guest-correct]')].find(b=>b.dataset.guestCorrect===guestFlow.sample_id);if(edit){edit.click();if(parameter==='ta_ppm')$('guestOptionalTests').open=true;$('guest-'+parameter).focus();return}}startTest();};
  const guide=$('guestGuideTest').onclick;$('guestGuideTest').onclick=()=>{guide();if(!guestCorrection&&!guestBusy)startTest();};
  const shortcut=$('guestBleachShortcut').onclick;$('guestBleachShortcut').onclick=()=>{if(guestBusy||guestCorrection)return;if(guestFlow.phase==='review')return;shortcut();const sample=activeEvents().filter(e=>e.type==='chemistry'&&Number.isFinite(e.fc_ppm)&&modelTime(e)!=null).sort(timelineOrder).at(-1);guestFlow={phase:'review',sample_id:sample?.id??null};refreshGuestDoseAdvice();};
  const advice=refreshGuestDoseAdvice;refreshGuestDoseAdvice=function(...args){advice(...args);refreshGuestWorkflow();};
  // Only a confirmed server save can advance a test to a recommendation.
  document.addEventListener('guest-entry-saved',({detail:{event,refreshed}})=>{
-  if(event.supersedes_event_id){guestFlow={phase:'manual',sample_id:null};refreshGuestWorkflow();guestBaseline=guestSignature();return;}
+  if(event.supersedes_event_id&&event.type!=='chemistry'){guestFlow={phase:'manual',sample_id:null};refreshGuestWorkflow();guestBaseline=guestSignature();return;}
   if(event.type==='chemistry'&&refreshed){
    const rows=activeEvents(),products=guestContext?.products||[],bleach=guestBleachPlan(rows,products,config,session?.user_id),acid=guestAcidPlan(rows,products,config,session?.user_id);
    const b=products.find(p=>p.profile.family==='hypochlorite'),a=products.find(p=>p.profile.family==='bisulfate');
@@ -2230,7 +2230,7 @@ function setupGuestWorkflow(){
    // by automatically offering an acid dose from the same test.
    const product=b&&bleach.status!=='none'?b:a&&acid.status!=='none'?a:b||a;
    guestFlow={phase:'review',sample_id:event.id};showKind(products.length?'chemical_addition':'chemistry');if(product)$('guestProduct').value=product.profile.id;
-   refreshGuestDoseAdvice();guestStatus('Test saved. Review the next step below—no dose has been recorded.');
+   refreshGuestDoseAdvice();guestStatus('Test saved. Your next step is below.');$('guestFlowReview').scrollIntoView?.({behavior:'smooth',block:'nearest'});
   }else if(event.type==='chemical_addition'){guestFlow={phase:'after-dose',sample_id:null};showKind('chemistry');guestStatus('Dose saved. Mix first, then log a fresh test before another adjustment.');}
   else if(!refreshed){guestFlow={phase:'test',sample_id:null};refreshGuestWorkflow();}
   guestBaseline=guestSignature();
@@ -2239,24 +2239,24 @@ function setupGuestWorkflow(){
  $('guestCancel').addEventListener('click',()=>{guestFlow={phase:'test',sample_id:null};$('guestAmount').value='';for(const key of Object.keys(STRIP_PROFILE.blocks))$('guest-'+key).value='';showKind('chemistry');guestBaseline=guestSignature();});
  $('guestKind').addEventListener('change',()=>refreshGuestWorkflow());
  // Guidance uses the exact current buttons rather than a separate Dose tab.
- const steps=$('tab-guest-guide').querySelector('ol');steps.children[0].innerHTML='<strong>Log → Test &amp; dose.</strong> Enter strip FC and pH, then <strong>Save test &amp; check doses</strong>.';steps.children[1].innerHTML='<strong>Review the next step.</strong> If a dose is suggested, tap <strong>Use this amount</strong>. Add it, confirm the actual quantity, then <strong>Save actual dose</strong>. The test alone never records a dose.';
+ const steps=$('tab-guest-guide').querySelector('ol');steps.children[0].innerHTML='<strong>Log → Check water.</strong> Match the FC and pH colors on the strip bottle. Tap <strong>Save test</strong>.';steps.children[1].innerHTML='<strong>Follow the next step.</strong> A suggested amount appears automatically. Tap <strong>Use this amount</strong>, have an adult add it, tick the confirmation, then <strong>Save dose</strong>. Save test never records a dose.';
  steps.children[3].innerHTML='<strong>Log → Soak.</strong> Enter bathers, minutes and jets/air, then <strong>Save soak</strong>. Time is the soak’s start; change it if logging afterward. Secure the cover when finished.';
- const help=$('tab-guest-guide').querySelector('details p');help.textContent='Test & dose shows the next calculated dose or explains why none is suggested. Handle one chemical at a time, mix and save a fresh test before another adjustment. Log a dose already added is for recording completed additions, not a second recommendation.';
+ const help=$('tab-guest-guide').querySelector('details p');help.textContent='Check water shows the next suggested amount or explains what is missing. Only an adult should handle chemicals. Use one chemical at a time, mix, then retest. Other options → Enter a dose manually is only for an addition already completed outside this check.';
  refreshGuestWorkflow();
 }
 function refreshGuestWorkflow(){
  if(!$('guestFlowReview'))return;
  const type=$('guestKind').value,review=guestFlow.phase==='review'&&!guestCorrection&&type!=='soak';
  $('guestFlowReview').hidden=!review;
- const manual=$('guestChooseDose');manual.hidden=false;
+ const manual=$('guestChooseDose');manual.hidden=false;$('guestBleachShortcut').hidden=true;
  $('guestChooseTest').setAttribute('aria-pressed',String(type==='chemistry'||review));$('guestChooseTest').className=type==='chemistry'||review?'primary':'secondary';
- const label=guestCorrection?'Save correction':type==='chemistry'?(guestFlow.phase==='after-dose'?'Save retest & check doses':'Save test & check doses'):type==='chemical_addition'?'Save actual dose':'Save soak';$('guestSubmit').textContent=label;
+ const label=guestCorrection?'Save correction':type==='chemistry'?(guestFlow.phase==='after-dose'?'Save retest':'Save test'):type==='chemical_addition'?'Save dose':'Save soak';$('guestSubmit').textContent=label;
  // Restore ordinary controls before deciding whether a guided dose is usable.
  $('guestSubmit').hidden=false;
  const productLabel=$('guestProduct').labels[0];productLabel.hidden=review;$('guestProduct').hidden=review;
  $('guestDoseAdvice').hidden=guestFlow.phase==='manual'&&!guestCorrection;
  for(const id of ['guestAmount','guestUnit']){$(id).hidden=false;$(id).labels[0].hidden=false;}
- if(!review)return;
+ $('guestFlowWarning').hidden=true;if(!review)return;
  const rows=activeEvents(),sample=rows.find(e=>e.id===guestFlow.sample_id),products=guestContext?.products||[],selected=products.find(p=>p.profile.id===$('guestProduct').value);
  $('guestFlowTitle').textContent='Test saved · next step';
  $('guestFlowSample').textContent=sample?Object.entries(sample.strip_observations?.readings||{}).map(([k,r])=>({fc_ppm:'FC',ph:'pH',ta_ppm:'TA'}[k])+' '+r.choice).join(' · ')+' · '+sample.timestamp.replace('T',' '):'Test saved. Refresh the connection before calculating.';
@@ -2264,9 +2264,13 @@ function refreshGuestWorkflow(){
  const acid=products.some(p=>p.profile.family==='bisulfate')?guestAcidPlan(rows,products,config,session?.user_id):null;
  const bleach=products.some(p=>p.profile.family==='hypochlorite')?guestBleachPlan(rows,products,config,session?.user_id):null;
  const noAdjustment=!!(bleach||acid)&&(!bleach||bleach.status==='none')&&(!acid||acid.status==='none');
- $('guestFlowNext').textContent=actualDraft&&plan?.status!=='dose'?'The calculation changed. Your entered amount is preserved; save only if you actually added it.':ready?(selected.profile.family==='hypochlorite'&&acid?.status==='dose'?'Bleach first. Mix and retest before checking pH Down.':'Review the suggestion below. Save only what you actually add.'):!products.length?'No chemical additions are enabled. Your test is saved.':plan?.status==='none'?'No dose suggested for '+selected.profile.name+'. '+(acid&&acid.status!=='dose'?acid.message:''):'Check the message below before adding anything.';
+ $('guestFlowTitle').textContent=actualDraft?'Confirm the dose':plan?.status==='dose'?'Next: add '+(selected.profile.family==='hypochlorite'?'bleach':'pH Down'):noAdjustment?'No dose suggested':'One more check';
+ $('guestFlowNext').textContent=actualDraft&&plan?.status!=='dose'?'The calculation changed. Your entered amount is unchanged. Save only if an adult actually added it.':actualDraft?'Check the amount and unit. After an adult adds it, tick the box and tap Save dose.':ready?(selected.profile.family==='hypochlorite'&&acid?.status==='dose'?'Bleach first. An adult adds one chemical at a time. Mix and retest before pH Down.':'Use the suggested amount below. Only an adult should handle chemicals.'):!products.length?'This guest access has no approved products. Your test is saved; ask the owner to enable dosing.':plan?.status==='none'?'No dose suggested for '+selected.profile.name+'. '+(acid&&acid.status!=='dose'?acid.message:''):'Read the message below before adding anything.';
  $('guestFlowNewTest').textContent='Log another test';
- if(noAdjustment&&!actualDraft)$('guestFlowNext').textContent='No dose suggested from these strip ranges. View Trends or log your soak when ready.';
+ delete $('guestFlowNewTest').dataset.completeParameter;
+ if(!ready&&plan?.status==='check'&&sample){const missing=sample.fc_ppm==null?'fc_ppm':sample.ph==null?'ph':/\bTA\b|alkalinity/i.test(plan.message)?'ta_ppm':null;if(missing){$('guestFlowNewTest').textContent='Add '+({fc_ppm:'FC',ph:'pH',ta_ppm:'alkalinity (TA)'}[missing])+' to this test';$('guestFlowNewTest').dataset.completeParameter=missing;}}
+ if(noAdjustment&&!actualDraft)$('guestFlowNext').textContent='No chemical adjustment is suggested from these strip ranges. You can view Trends or log another activity.';
+ if(sample&&(sample.ph<7.2||sample.fc_ppm>10)){$('guestFlowWarning').hidden=false;$('guestFlowWarning').textContent='Do not soak yet. Ask the owner to check this reading. Never add pH Down to low-pH water.';}
  $('guestTest').hidden=true;$('guestDose').hidden=!products.length||noAdjustment&&!actualDraft;
  for(const input of $('guestDose').querySelectorAll('input,select'))input.disabled=guestBusy||!ready;
  $('guestSubmit').hidden=!ready||!actualDraft;
@@ -2287,10 +2291,13 @@ function guestPracticeEvent(event){
  const fields=['id','schema_version','app_version','type','timestamp','timestamp_instant','time_zone','utc_offset_minutes','date_precision','created_at','fill_cycle_id','fc_ppm','cc_ppm','ph','ph_bounds','ta_ppm','ch_ppm','cya_ppm','borates_ppm','temperature_f','acid_demand_drops','acid_demand_target_ph','bathers','duration_minutes','showered','jet_air_use','air_on_minutes','product','product_id','product_revision','product_profile','amount','unit','strength_percent','purity_percent','circulation_minutes','activity','filter_set','full','gallons','new_fill_cycle_id','starting_cya_ppm','starting_borates_ppm','cya_baseline_ppm','borates_baseline_ppm','exposure','water_source','softened','measurement_method','measurement_sources','strip_observations','test_kit','calculation','test_before_dose_id','source_test_id','product_strength','historical','weather_context','source_chemistry','measurement_context','top_off_reason','water_level_before','water_level_after'];
  const safe=Object.fromEntries(fields.filter(k=>event[k]!=null).map(k=>[k,configClone(event[k])]));if(event.custom_activity==='Standalone jets')safe.custom_activity='Standalone jets';return safe;
 }
+function guestPreviewProducts(settings){
+ return [['bleach','hypochlorite',250],['acid','bisulfate',100]].flatMap(([role,family,limit])=>{const id=settings.product_defaults?.[role]||('legacy-'+role),profile=settings.products?.[id]??PRODUCT_BUILTINS.find(p=>p.id===id);try{validateProduct(profile);if(profile.archived||profile.family!==family)return [];return [{profile:configClone(profile),max_single_mL:limit,max_daily_mL:limit*2}]}catch{return []}});
+}
 function guestPracticeUseSnapshot(id){
- const snapshot=guestPracticeSnapshotData,grant=snapshot.grants.find(g=>g.id===id)??(!snapshot.grants.length&&id==null?{id:null,label:'Preview without an invitation',products:[],instructions:'Preview your saved water history, tests, soaks and Trends. Create a guest invitation in the owner app to rehearse its approved products and dose limits.'}:null);if(!grant)throw Error('Choose an invitation for practice');
+ const snapshot=guestPracticeSnapshotData,grant=snapshot.grants.find(g=>g.id===id)??(!snapshot.grants.length&&id==null?{id:null,label:'Owner product preview',products:snapshot.default_products||[],instructions:''}:null);if(!grant)throw Error('Choose an invitation for practice');
  const products=grant.products.map(p=>{const used=snapshot.raw.filter(e=>e.type==='chemical_addition'&&e.product_id===p.profile.id&&e.guest_actor?.grant_id===grant.id&&Date.parse(e.created_at)>snapshot.loaded_at-86400000).reduce((sum,e)=>sum+e.amount*(PRODUCT_VOLUME[e.unit]||0),0);return {...configClone(p),max_daily_mL:Math.max(0,p.max_daily_mL-used)};});
- return {user:'Practice guest',expires_at:new Date(Date.now()+86400000).toISOString(),instructions:grant.instructions||'',config:configClone(snapshot.config),products,events:snapshot.raw.map(guestPracticeEvent),snapshot:true,snapshot_at:new Date(snapshot.loaded_at).toISOString(),grant_label:grant.label||grant.login,grant_id:grant.id};
+ return {user:'Practice guest',expires_at:new Date(Date.now()+86400000).toISOString(),instructions:grant.instructions||'',config:configClone(snapshot.config),products,events:snapshot.raw.map(guestPracticeEvent),snapshot:true,preview_defaults:!grant.id,snapshot_at:new Date(snapshot.loaded_at).toISOString(),grant_label:grant.label||grant.login,grant_id:grant.id};
 }
 async function guestPracticeInitialize(){
  // Synthetic fixtures are available only by explicit opt-in on local test hosts.
@@ -2301,7 +2308,7 @@ async function guestPracticeInitialize(){
   const months=[...new Set(archive.months||[])];if(months.length>24)throw Error('Archive is too large for this practice view');
   const documents=await Promise.all(months.map(month=>guestPracticeRead('/api/events?month='+month))),raw=guestActivePracticeEvents(documents.flatMap(d=>d.document.events));
   const now=Date.now(),grants=access.policy.grants.filter(g=>!g.revoked&&Date.parse(g.ends_at)>now).sort((a,b)=>Number(Date.parse(a.starts_at)>now)-Number(Date.parse(b.starts_at)>now)||Date.parse(a.starts_at)-Date.parse(b.starts_at));
-  guestPracticeSnapshotData={raw,grants,loaded_at:now,config:{schema_version:2,spa:configClone(saved.config.spa),targets:configClone(saved.config.targets),chemicals:configClone(saved.config.chemicals),source_water:configClone(saved.config.source_water),current_fill_cycle_id:saved.config.current_fill_cycle_id}};
+  guestPracticeSnapshotData={raw,grants,default_products:guestPreviewProducts(saved.config),loaded_at:now,config:{schema_version:2,spa:configClone(saved.config.spa),targets:configClone(saved.config.targets),chemicals:configClone(saved.config.chemicals),source_water:configClone(saved.config.source_water),current_fill_cycle_id:saved.config.current_fill_cycle_id}};
   return guestPracticeUseSnapshot(grants[0]?.id);
 }
 function guestPracticeSeed(){
@@ -2346,20 +2353,20 @@ function guestActivePracticeEvents(events){const replaced=new Set(events.map(e=>
 function setupGuestPractice(){
  if(typeof window==='undefined'||!document.querySelector)return;
  if(!guestPage()){
-  const link=document.createElement('a');link.id='guestPracticeLink';link.href='/guest?practice=1&source=owner';link.target='_blank';link.rel='noopener';link.className='secondary';link.textContent='Preview guest mode · real data';const help=document.createElement('p');help.className='help';help.textContent='Loads your saved tub history and Trends in guest view. No invitation needed to preview tests and soaks; an unexpired invitation supplies its exact product permissions and remaining dose limits. Preview entries never sync or activate guest access.';$('guestManagement').prepend(link,help);return;
+  const link=document.createElement('a');link.id='guestPracticeLink';link.href='/guest?practice=1&source=owner';link.target='_blank';link.rel='noopener';link.className='secondary';link.textContent='Preview guest mode · real data';const help=document.createElement('p');help.className='help';help.textContent='Try the full workflow with your synced history and saved products. An invitation uses its exact permissions and limits; without one, clearly labeled preview-only limits apply. Nothing in preview syncs or grants guest access.';$('guestManagement').prepend(link,help);return;
  }
  if(!GUEST_PRACTICE)return;
  const badge=document.createElement('p');badge.id='guestPracticeBadge';badge.className='help';badge.style.color='#ffd18b';badge.textContent='Practice only · nothing saves to your real tub';document.querySelector('.status').after(badge);
  const banner=document.createElement('aside');banner.id='guestPracticeBanner';banner.className='panel';banner.setAttribute('role','status');banner.innerHTML='<strong>Guest preview · loading your saved tub data</strong><p>Preview entries are temporary and never sync. No demo data will be substituted.</p><button id="resetGuestPractice" class="secondary" type="button">Reload latest tub data</button> <a href="/" rel="noopener">Return to owner app</a>';$('guestPanel').before(banner);
  $('resetGuestPractice').onclick=()=>{if(confirm('Reload the latest saved tub data and discard temporary preview entries? Your real history is unaffected.'))location.reload();};
  const logout=document.querySelector('#guestPanel a[href="/guest/logout"]');if(logout){logout.href='/';logout.textContent='Leave practice';}
- const reminder=guestDoseReminder;guestDoseReminder=function(){reminder();$('guestAfterDose').querySelector('p').textContent='Practice dose recorded—not a real addition. In the real workflow: '+GUEST_AFTER_DOSE;};
+ const reminder=guestDoseReminder;guestDoseReminder=function(...args){reminder(...args);$('guestAfterDose').querySelector('p').textContent='Practice dose recorded—not a real addition. In the real workflow: '+GUEST_AFTER_DOSE;};
  const status=guestStatus;guestStatus=function(message){status('Practice · '+message);};
 }
 function refreshGuestPracticeBanner(){
  const banner=$('guestPracticeBanner'),state=guestPracticeState;if(!banner||!state)return;
  banner.querySelector('strong').textContent=state.snapshot?'Practice only · actual water snapshot':'Practice only · synthetic water data';
- banner.querySelector('p').textContent=state.snapshot?'Saved data loaded '+SpaTime.format(Date.parse(state.snapshot_at),{dateStyle:'short',timeStyle:'short'})+'. Forecasts use this snapshot; Reload latest tub data refreshes it. Preview entries never sync or persist. '+(!state.grant_id?'No invitation: tests, soaks and Trends are available; create an invitation to preview approved dosing. ':'')+'Do not add real chemicals from practice mode.':'Local test fixture only. No entries sync or persist. Do not use these sample doses on your real tub.';
+ banner.querySelector('p').textContent=state.snapshot?'Saved data loaded '+SpaTime.format(Date.parse(state.snapshot_at),{dateStyle:'short',timeStyle:'short'})+'. Reload latest tub data refreshes it. Preview entries never sync. '+(state.preview_defaults?'No invitation: using your saved products with preview-only limits, not real guest permissions. ':'')+'Do not add real chemicals from practice mode.':'Local test fixture only. No entries sync or persist. Do not use these sample doses on your real tub.';
  if(state.snapshot&&guestPracticeSnapshotData.grants.length&&!$('guestPracticeGrant')){const label=document.createElement('label');label.htmlFor='guestPracticeGrant';label.textContent='Invitation to rehearse';const select=document.createElement('select');select.id='guestPracticeGrant';for(const grant of guestPracticeSnapshotData.grants){const option=document.createElement('option');option.value=grant.id;option.textContent=grant.label||grant.login;select.append(option);}select.value=state.grant_id;select.onchange=async()=>{if(!confirm('Discard temporary practice entries and switch invitation? Real records are unaffected.')){select.value=guestPracticeState.grant_id;return;}guestPracticeState=guestPracticeUseSnapshot(select.value);guestPending=null;guestCorrection=null;$('guestCancel').click();$('guestAmount').value='';for(const key of Object.keys(STRIP_PROFILE.blocks))$('guest-'+key).value='';await connectGuest();};banner.append(label,select);}
 }
 function forecastPerformance(events,key){const rows=validForecastReviews(events,key).filter(r=>Number.isFinite(r.error)).slice(-20);return {count:rows.length,mae:rows.length?rows.reduce((s,r)=>s+Math.abs(r.error),0)/rows.length:null,bias:rows.length?rows.reduce((s,r)=>s+r.error,0)/rows.length:null};}
