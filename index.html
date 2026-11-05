@@ -146,7 +146,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.67.2',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.67.3',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -1648,7 +1648,7 @@ function installSoakDurationPicker(input,max){
 function setupSoakAeration(){
   const oldLabel=label;label=function(e){return isExposure(e)&&e.exposure.kind==='jets'?'Jets / aeration — '+e.exposure.duration_minutes+' min · air controls '+(e.exposure.air_on?'open':'closed'):oldLabel(e);};
   const form=$('soakForm'),bathers=$('bathers'),shower=$('showered'),jets=$('jetAirUse'),button=form.querySelector('button[type="submit"]');
-  installSoakDurationPicker($('minutes'),720);
+  installSoakDurationPicker($('minutes'),120);
   const hint=document.createElement('p');hint.id='aerationHint';hint.className='help';hint.hidden=true;hint.textContent='Jets without bathers. Date/time is when aeration ended (defaults to now); the start is calculated from the duration. Saved as a jets-only exposure for pH trends, not a soak.';bathers.closest('.two').after(hint);
   let zero=false,previousShower=shower.checked,previousJets=jets.value;
   const mode=()=>{const next=bathers.value==='0';if(next&&!zero){previousShower=shower.checked;previousJets=jets.value;}shower.disabled=next;shower.closest('.inline').style.opacity=next?'.45':'';if(next)shower.checked=false;else if(zero){shower.checked=previousShower;jets.value=previousJets;}
@@ -2137,7 +2137,7 @@ function setupGuestMode(){
  for(const event of ['input','change'])$('guestAt').addEventListener(event,()=>{guestTimeEdited=true;timeSummary();});useNow.onclick=()=>{guestTimeEdited=false;guestPending=null;$('guestAt').value=localNow();timeBox.open=false;timeSummary();};
  const afterDose=document.createElement('section');afterDose.id='guestAfterDose';afterDose.className='guest-dose-reminder';afterDose.hidden=true;afterDose.setAttribute('role','status');afterDose.innerHTML='<h3>After your dose</h3><p></p><details><summary>Safety details</summary>'+GUEST_DOSE_DETAILS+'</details><button type="button" class="secondary" id="guestDoseUnderstood">Got it</button>';panel.querySelector('#guestForm').before(afterDose);$('guestDoseUnderstood').onclick=()=>{afterDose.hidden=true;};
  const kind=()=>{for(const [id,type]of [['guestTest','chemistry'],['guestSoak','soak'],['guestDose','chemical_addition']]){const active=$('guestKind').value===type;$(id).hidden=!active;for(const input of $(id).querySelectorAll('input,select'))input.disabled=!active;}for(const b of activities.querySelectorAll('button')){const active=b.dataset.guestKind===$('guestKind').value;b.setAttribute('aria-pressed',String(active));b.className=active?'primary':'secondary';}timeSummary();refreshGuestDoseAdvice();};$('guestKind').onchange=kind;activities.onclick=e=>{const b=e.target.closest('[data-guest-kind]');if(!b||b.disabled||b.dataset.guestKind===$('guestKind').value)return;if(guestCorrection){guestStatus('Save or cancel your correction before switching activities.');return;}$('guestKind').value=b.dataset.guestKind;$('guestKind').dispatchEvent(new Event('change',{bubbles:true}));};kind();
- $('guestAmount').required=true;$('guestAmount').min='0.000001';$('guestProduct').required=true;$('guestBathers').required=true;$('guestMinutes').required=true;installSoakDurationPicker($('guestMinutes'),180);
+ $('guestAmount').required=true;$('guestAmount').min='0.000001';$('guestProduct').required=true;$('guestBathers').required=true;$('guestMinutes').required=true;installSoakDurationPicker($('guestMinutes'),120);
  const clear=()=>{guestCorrection=null;guestPending=null;guestTimeEdited=false;$('guestConfirmAdded').required=false;$('guestConfirmAdded').checked=false;$('guestConfirmRow').hidden=true;$('guestAt').value=localNow();timeBox.open=false;timeSummary();$('guestSubmit').textContent='Save entry';$('guestCancel').hidden=true;};$('guestCancel').onclick=clear;
  for(const event of ['input','change'])$('guestForm').addEventListener(event,()=>{guestPending=null;});
  $('guestForm').onsubmit=async e=>{e.preventDefault();if(guestBusy)return;if(!session||!guestContext){guestStatus('Connect before saving.');return;}if(!$('guestForm').checkValidity()){$('guestForm').reportValidity?.();return;}guestBusy=true;

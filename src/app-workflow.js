@@ -13,7 +13,7 @@ function installSoakDurationPicker(input,max){
 function setupSoakAeration(){
   const oldLabel=label;label=function(e){return isExposure(e)&&e.exposure.kind==='jets'?'Jets / aeration — '+e.exposure.duration_minutes+' min · air controls '+(e.exposure.air_on?'open':'closed'):oldLabel(e);};
   const form=$('soakForm'),bathers=$('bathers'),shower=$('showered'),jets=$('jetAirUse'),button=form.querySelector('button[type="submit"]');
-  installSoakDurationPicker($('minutes'),720);
+  installSoakDurationPicker($('minutes'),120);
   const hint=document.createElement('p');hint.id='aerationHint';hint.className='help';hint.hidden=true;hint.textContent='Jets without bathers. Date/time is when aeration ended (defaults to now); the start is calculated from the duration. Saved as a jets-only exposure for pH trends, not a soak.';bathers.closest('.two').after(hint);
   let zero=false,previousShower=shower.checked,previousJets=jets.value;
   const mode=()=>{const next=bathers.value==='0';if(next&&!zero){previousShower=shower.checked;previousJets=jets.value;}shower.disabled=next;shower.closest('.inline').style.opacity=next?'.45':'';if(next)shower.checked=false;else if(zero){shower.checked=previousShower;jets.value=previousJets;}

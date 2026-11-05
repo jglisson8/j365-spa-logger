@@ -1,5 +1,9 @@
 # Soak duration dropdown — v6.67.2
 
+v6.67.3: owner and guest standard choices now stop at **120 minutes** (24 options
+from 5 to 120). Historical corrections retain their original longer durations;
+the change does not shorten old records or change exact-minute aeration entry.
+
 Owner and guest soak entry now use a native duration dropdown in five-minute
 increments, defaulting to 15 minutes. Existing owner (720 min) and guest (180 min)
 limits are retained. The existing numeric value remains the canonical save input;
