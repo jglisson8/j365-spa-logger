@@ -4,6 +4,9 @@ Static, local-first logger with authenticated private GitHub synchronization thr
 
 ## Development and tests
 
+See [v6.67.0 UI performance notes](docs/ui-performance-6.67.0.md) for profiling,
+operation-scoped model reuse, on-demand charts and numerical-parity checks.
+
 For the targeted manual/calculated acid-response consistency fix, see
 [v6.66.1 investigation and regression notes](docs/acid-dose-context-6.66.1.md).
 

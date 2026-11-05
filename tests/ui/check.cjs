@@ -124,13 +124,14 @@ const splitSvg=w.eval("projectionSvg(balanceProjection(splitEvents,'ph',splitNow
 w.HTMLDialogElement.prototype.showModal=function(){this.open=true};w.HTMLDialogElement.prototype.close=function(){this.open=false};
 w.confirm=()=>true;
 assert.ok($('modelSummary'));assert.equal($('modelHistorical').checked,true);
+w.eval('renderModelBeta()'); // Closed advanced diagnostics now calculate on demand.
 assert.ok($('modelAssumptions').textContent.includes('CYA 30 ppm'));
 assert.ok($('modelAssumptions').textContent.includes('borates 40 ppm'));
 const betaHistory=require('../fixtures/historical.cjs');
 const originalHistory=JSON.stringify(betaHistory);
 // Simplified charts retain history without competing calculated-history lines.
 w.betaHistory=betaHistory;
-w.localStorage.setItem('j365_spa_events_v2',originalHistory);w.eval('render()');
+w.localStorage.setItem('j365_spa_events_v2',originalHistory);w.eval('render();renderCharts(activeEvents())');
 assert.ok(d.querySelectorAll('#trendCharts svg').length>=3);assert.ok(d.querySelectorAll('#trendCharts circle').length>0);assert.ok($('trendCharts').innerHTML.includes('pH &gt;8'));
 $('trendWindow').value='fill';w.eval('renderCharts(betaHistory)');assert.equal(d.querySelector('[data-chart-trend="daily"]'),null);assert.equal(d.querySelector('[data-chart-trend="decay"]'),null);assert.equal(d.querySelector('#tab-trends details.calcbox').open,false);
 $('trendCharts').querySelector('[data-expand-chart="fc_ppm"]').click();assert.equal($('chartViewer').open,true);assert.ok($('expandedChart').querySelector('svg'));

@@ -132,7 +132,9 @@ const SpaTime=(()=>{
  function parse(value){if(typeof value!=='string')return NaN;const suffix=value.match(/(Z|[+-]\d{2}:\d{2})$/);if(suffix){if(!wall(value.slice(0,-suffix[1].length)))return NaN;return Date.parse(value)}const found=candidates(value);return found.length===1?found[0]:NaN}
  function input(ms=Date.now()){const p=parts(ms);return p?`${pad(p.year,4)}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`:''}
  function matches(ms,value){const p=wall(value),a=parts(ms);return !!p&&!!a&&['year','month','day','hour','minute','second'].every(k=>p[k]===a[k])&&new Date(ms).getUTCMilliseconds()===p.millisecond}
- function event(e){if(!e||e.date_precision==='date_only'||!e.timestamp?.includes('T'))return null;if(e.timestamp_instant!=null){const ms=parse(e.timestamp_instant),explicit=/(Z|[+-]\d{2}:\d{2})$/.test(e.timestamp);return e.time_zone===zone&&Number.isFinite(ms)&&(explicit?ms===parse(e.timestamp):matches(ms,e.timestamp))&&(e.utc_offset_minutes==null||e.utc_offset_minutes===offset(ms))?ms:null}const ms=parse(e.timestamp);return Number.isFinite(ms)?ms:null}
+ const eventCache=new Map();
+ function event(e){if(!e||e.date_precision==='date_only'||!e.timestamp?.includes('T'))return null;const key=JSON.stringify([e.timestamp,e.timestamp_instant,e.time_zone,typeof e.utc_offset_minutes+':'+String(e.utc_offset_minutes)]);if(eventCache.has(key))return eventCache.get(key);const ms=eventInstant(e);if(eventCache.size>=4096)eventCache.clear();eventCache.set(key,ms);return ms}
+ function eventInstant(e){if(e.timestamp_instant!=null){const ms=parse(e.timestamp_instant),explicit=/(Z|[+-]\d{2}:\d{2})$/.test(e.timestamp);return e.time_zone===zone&&Number.isFinite(ms)&&(explicit?ms===parse(e.timestamp):matches(ms,e.timestamp))&&(e.utc_offset_minutes==null||e.utc_offset_minutes===offset(ms))?ms:null}const ms=parse(e.timestamp);return Number.isFinite(ms)?ms:null}
  function calendar(value){if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return NaN;return parse(value+'T00:00')}
  function orderValue(value){if(typeof value==='object'&&value){const ms=event(value);return ms??calendar(value.timestamp)}const ms=parse(value);return Number.isFinite(ms)?ms:calendar(value)}
  function compare(a,b){const x=orderValue(a),y=orderValue(b);if(Number.isFinite(x)&&Number.isFinite(y))return x-y;const left=typeof a==='object'?a?.timestamp:a,right=typeof b==='object'?b?.timestamp:b;return String(left??'').localeCompare(String(right??''))}
@@ -144,7 +146,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.66.2',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.67.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -442,7 +444,7 @@ function setupServiceSettings(){
  const shortcut=document.createElement('button');shortcut.type='button';shortcut.className='secondary';shortcut.textContent='Edit intervals';shortcut.onclick=()=>{setTab('maintenance');panel.open=true;panel.scrollIntoView?.({behavior:'smooth',block:'start'})};$('headerMaintenance').appendChild(shortcut);renderServiceSettings();
  const previous=render;render=function(){previous();renderServiceSettings()};
 }
-function renderExtras(){const all=activeEvents().sort((a,b)=>compareSpa(b,a)),fill=all.find(e=>e.type==='water_change'&&e.full&&compareSpa(e,localNow())<=0),fillId=fill?.new_fill_cycle_id??config?.current_fill_cycle_id,current=all.filter(e=>fillId&&e.fill_cycle_id===fillId),latest=current.find(e=>e.type==='chemistry');$('fillSummary').innerHTML=`<p>${fill?'Filled '+esc(fill.timestamp.replace('T',' '))+' · '+daysSince(fill.timestamp)+' days old':'Refill date not loaded / recorded'}</p><p>${latest?'Latest chemistry: '+esc(label(latest))+' ('+esc(latest.timestamp.replace('T',' '))+')':'No chemistry recorded for this fill.'}</p>`;const tasks=SERVICE_TASKS;$('maintenanceDue').innerHTML=tasks.map(([activity,name,key,fallback])=>{const last=serviceLast(activity,all),interval=serviceInterval(key,fallback),left=last?interval-daysSince(last.timestamp):null;return `<p>${name}: ${last?esc(last.timestamp.slice(0,10))+' · '+(left<0?Math.abs(left)+' days overdue':left===0?'due today':'due in '+left+' days'):'not recorded / loaded'} (${interval}-day interval)</p>`}).join('');renderCharts(all);renderBackup()}
+function renderExtras(){const all=activeEvents().sort((a,b)=>compareSpa(b,a)),fill=all.find(e=>e.type==='water_change'&&e.full&&compareSpa(e,localNow())<=0),fillId=fill?.new_fill_cycle_id??config?.current_fill_cycle_id,current=all.filter(e=>fillId&&e.fill_cycle_id===fillId),latest=current.find(e=>e.type==='chemistry');$('fillSummary').innerHTML=`<p>${fill?'Filled '+esc(fill.timestamp.replace('T',' '))+' · '+daysSince(fill.timestamp)+' days old':'Refill date not loaded / recorded'}</p><p>${latest?'Latest chemistry: '+esc(label(latest))+' ('+esc(latest.timestamp.replace('T',' '))+')':'No chemistry recorded for this fill.'}</p>`;const tasks=SERVICE_TASKS;$('maintenanceDue').innerHTML=tasks.map(([activity,name,key,fallback])=>{const last=serviceLast(activity,all),interval=serviceInterval(key,fallback),left=last?interval-daysSince(last.timestamp):null;return `<p>${name}: ${last?esc(last.timestamp.slice(0,10))+' · '+(left<0?Math.abs(left)+' days overdue':left===0?'due today':'due in '+left+' days'):'not recorded / loaded'} (${interval}-day interval)</p>`}).join('');requestUiCharts(all);renderBackup()}
 function chartTime(e){return SpaTime.event(e)??SpaTime.calendar(e.timestamp?.slice(0,10))}
 function chartWindow(events,key,choice,now=Date.now()){
  const fill=events.filter(e=>e.type==='water_change'&&e.full&&chartTime(e)<=now).sort((a,b)=>chartTime(b)-chartTime(a))[0],fillId=fill?.new_fill_cycle_id??config?.current_fill_cycle_id;
@@ -660,7 +662,9 @@ function balanceDoseMass(e){
 // Carbonate constants vary with temperature (Plummer/Busenberg equations).
 // Borate/CYA/water constants use 25°C references; TDS/activity corrections and
 // atmospheric equilibrium are not known, so this is a local provisional model.
-function carbonateTerms(ph,state){const T=(state.temperature_f-32)*5/9+273.15,k1=10**(-356.31-.06092*T+21834.4/T+126.834*Math.log10(T)-1684915/(T*T)),k2=10**(-107.887-.032528*T+5151.79/T+38.9256*Math.log10(T)-563713.9/(T*T)),h=10**(-ph),d=h*h+k1*h+k1*k2;return {fraction:(k1*h+2*k1*k2)/d,other:state.borates_ppm/10810/(1+h/10**(-9.24))+state.cya_ppm/129070/(1+h/10**(-6.88))+1e-14/h-h}}
+const carbonateConstantCache=new Map();
+function carbonateConstants(temperature){if(carbonateConstantCache.has(temperature))return carbonateConstantCache.get(temperature);const T=(temperature-32)*5/9+273.15,result={k1:10**(-356.31-.06092*T+21834.4/T+126.834*Math.log10(T)-1684915/(T*T)),k2:10**(-107.887-.032528*T+5151.79/T+38.9256*Math.log10(T)-563713.9/(T*T))};if(carbonateConstantCache.size>=64)carbonateConstantCache.clear();carbonateConstantCache.set(temperature,result);return result}
+function carbonateTerms(ph,state){const {k1,k2}=carbonateConstants(state.temperature_f),h=10**(-ph),d=h*h+k1*h+k1*k2;return {fraction:(k1*h+2*k1*k2)/d,other:state.borates_ppm/10810/(1+h/10**(-9.24))+state.cya_ppm/129070/(1+h/10**(-6.88))+1e-14/h-h}}
 function carbonFromPh(ph,state){const q=carbonateTerms(ph,state),carbon=(state.ta_ppm/50000-q.other)/q.fraction;return carbon>0&&Number.isFinite(carbon)?carbon:null}
 function phFromCarbon(state){if(!(state.carbon>0)||!(state.ta_ppm>0))return null;const residual=ph=>{const q=carbonateTerms(ph,state);return state.carbon*q.fraction+q.other-state.ta_ppm/50000};let lo=6,hi=9;if(residual(lo)>0||residual(hi)<0)return null;for(let i=0;i<48;i++){const mid=(lo+hi)/2;if(residual(mid)>0)hi=mid;else lo=mid}return (lo+hi)/2}
 function bakingDosePlan({ta,ph,targetTa,targetPh,mode,maxTa,volume,state}){
@@ -1255,7 +1259,7 @@ $('modelHistorical').addEventListener('input',()=>{renderCharts(activeEvents());
 const frameworkPanel=document.createElement('div');frameworkPanel.id='parameterFramework';beta.appendChild(frameworkPanel);
 const validationPanel=document.createElement('div');validationPanel.innerHTML='<h3>Forecast checks</h3><p class="help">Save a forecast now, then test normally later. Its coefficients and evidence IDs are frozen, so later measurements cannot rewrite the original prediction. Comparisons use the frozen equation at the actual test time; disturbed or out-of-horizon intervals are not scored.</p><button class="secondary" id="saveForecast">Save this FC scenario for later comparison</button><div id="forecastChecks"></div>';beta.appendChild(validationPanel);
 $('saveForecast').onclick=()=>{const events=activeEvents(),model=buildDecayModel(events,$('modelHistorical').checked),startFc=num($('modelStartFc').value),hours=num($('modelHours').value),prediction=decayForecast(model,startFc,hours);if(!prediction){alert('Enter a valid starting FC and a supported forecast horizon first.');return}const ts=localNow(),fill=fillAt(ts);if(!fill){alert('Record or load the current fill first.');return}const start=parseSpaTime(ts),record={...base('note',ts),notes:'Saved FC decay scenario — not a measured chemistry result',forecast_snapshot:{version:MODEL_ASSUMPTIONS.version,start_time:start,target_time:start+hours*3600000,start_fc:startFc,hours,predicted:prediction.estimate,low:prediction.low,high:prediction.high,k:model.k,max_hours:model.maxHours,evidence_ids:[...new Set(model.intervals.flatMap(p=>[p.a.id,p.b.id]))],assumptions:{...MODEL_ASSUMPTIONS,cya:calculatedCya(events,ts),selection:model.selection,volume_gallons:fillVolume(events,ts),soak:soakCoefficients(events,model),maintenance:maintenanceContext(events,ts),bands:model.bands},historical_enabled:$('modelHistorical').checked}};save([record],'Forecast saved');};
-const renderWithoutBeta=render;render=function(){renderWithoutBeta();renderModelBeta()};
+const renderWithoutBeta=render;render=function(){renderWithoutBeta();requestUiModelDetails()};
 // Historical records are displayable context, never silently promoted to precise observations.
 const normalLabel=label;
 label=function(e){let result=normalLabel(e);if(e.type==='soak')result=`${e.bathers??'Unknown'} bather(s), ${e.duration_minutes??'unknown'} min, ${e.temperature_f??'?'}°F`;if(e.type==='water_top_off'&&e.gallons==null)result='Top-off — volume unknown';if(e.ph_bounds)result+=' · pH '+(['>','>='].includes(e.ph_bounds.operator)?(e.ph_bounds.operator==='>='?'≥':'>')+e.ph_bounds.value:e.ph_bounds.minimum+'–'+e.ph_bounds.maximum);if(e.historical)result+=' · '+e.historical.status.replaceAll('_',' ')+(e.date_precision==='date_only'?' · time unknown':'')+' · beta-only context';return result};
@@ -1608,12 +1612,12 @@ body.app-ui{padding-bottom:calc(92px + env(safe-area-inset-bottom))}.app-ui .bra
   $('chartScaleMode').onchange=()=>{if($('chartScaleMode').value==='custom'){$('chartRangeControls').open=true;$('chartScaleMin').focus();return;}localStorage.setItem('j365_chart_scale_'+expandedChartKey,JSON.stringify({mode:$('chartScaleMode').value}));updateExpandedChart();};
   $('applyChartScale').onclick=()=>{const min=num($('chartScaleMin').value),max=num($('chartScaleMax').value);if(min==null||max==null||min<0||max<=min){$('chartScaleError').textContent='Choose a maximum greater than the minimum.';return;}localStorage.setItem('j365_chart_scale_'+expandedChartKey,JSON.stringify({mode:'custom',min,max}));$('chartScaleMode').value='custom';$('chartScaleError').textContent='';$('chartRangeControls').open=false;updateExpandedChart();};
   $('applyChartRange').addEventListener('click',()=>{if(!$('chartRangeError').textContent)$('chartRangeControls').open=false;});
-  let resizeFrame;window.addEventListener('resize',()=>{window.cancelAnimationFrame?.(resizeFrame);resizeFrame=schedule(()=>{if(chartViewer.open)updateExpandedChart();else renderCharts(activeEvents());});});
+  let resizeFrame;window.addEventListener('resize',()=>{window.cancelAnimationFrame?.(resizeFrame);resizeFrame=schedule(()=>{if(chartViewer.open)updateExpandedChart();else requestUiCharts(activeEvents());});});
   // Pinch affects the view only. Single-finger inspection retains the existing behavior.
   const fingers=new Map();let pinch=null;const plot=$('expandedChart');
   plot.addEventListener('pointerdown',e=>{if(!e.target.closest('svg'))return;plot.setPointerCapture?.(e.pointerId);fingers.set(e.pointerId,e.clientX);if(fingers.size===2){const a=[...fingers.values()];pinch={distance:Math.max(10,Math.abs(a[0]-a[1])),start:parseSpaTime($('chartStart').value),end:parseSpaTime($('chartEnd').value)};} });
-  plot.addEventListener('pointermove',e=>{if(!fingers.has(e.pointerId))return;fingers.set(e.pointerId,e.clientX);if(!pinch||fingers.size!==2)return;const a=[...fingers.values()],ratio=pinch.distance/Math.max(10,Math.abs(a[0]-a[1])),span=Math.min(366*86400000,Math.max(3600000,(pinch.end-pinch.start)*ratio)),center=(pinch.start+pinch.end)/2;$('chartStart').value=chartInputTime(center-span/2);$('chartEnd').value=chartInputTime(center+span/2);updateExpandedChart();});
-  for(const name of ['pointerup','pointercancel'])plot.addEventListener(name,e=>{fingers.delete(e.pointerId);if(fingers.size<2)pinch=null;});
+  plot.addEventListener('pointermove',e=>{if(!fingers.has(e.pointerId))return;fingers.set(e.pointerId,e.clientX);if(!pinch||fingers.size!==2)return;const a=[...fingers.values()],ratio=pinch.distance/Math.max(10,Math.abs(a[0]-a[1])),span=Math.min(366*86400000,Math.max(3600000,(pinch.end-pinch.start)*ratio)),center=(pinch.start+pinch.end)/2;$('chartStart').value=chartInputTime(center-span/2);$('chartEnd').value=chartInputTime(center+span/2);pinch.changed=true;const ink=plot.querySelector('svg g[clip-path]');if(ink){ink.style.transformOrigin='285px center';ink.style.transform='scaleX('+((pinch.end-pinch.start)/span)+')';}});
+  for(const name of ['pointerup','pointercancel'])plot.addEventListener(name,e=>{fingers.delete(e.pointerId);if(fingers.size<2&&pinch){const changed=pinch.changed;pinch=null;plot.querySelector('svg g[clip-path]')?.style.removeProperty('transform');if(changed)updateExpandedChart();}});
   // History remains backed by original entries; the sheet delegates existing actions.
   const sheet=document.createElement('dialog');sheet.id='historySheet';sheet.className='app-sheet';sheet.innerHTML='<button type="button" class="secondary sheet-close">Close</button><h2>Entry details</h2><div id="historySheetBody"></div>';document.body.append(sheet);sheet.querySelector('button').onclick=()=>sheet.close();let originalEntry=null,selectedHistoryId=null;
   const populateHistorySheet=entry=>{originalEntry=entry;const summary=entry.querySelector('summary'),title=summary.cloneNode(true);title.querySelector('time')?.remove();const action=entry.querySelector('[data-edit],[data-remove-record],[data-restore-record]');selectedHistoryId=action?.dataset.edit||action?.dataset.removeRecord||action?.dataset.restoreRecord||null;$('historySheetBody').innerHTML='<p class="help">'+esc(summary.querySelector('time')?.textContent||'')+'</p>'+[...summary.parentElement.children].filter(c=>c!==summary).map(c=>c.outerHTML).join('');sheet.querySelector('h2').textContent=title.textContent;};
@@ -2363,7 +2367,50 @@ function setupForecastUsability(){
  const update=()=>{$('forecastPerformanceRows').innerHTML=['fc_ppm','ph','ta_ppm'].map(key=>{const p=forecastPerformance(activeEvents(),key),digits=key==='ta_ppm'?0:2,unit=key==='ph'?'':' ppm';return '<p><strong>'+({fc_ppm:'FC',ph:'pH',ta_ppm:'TA'}[key])+'</strong> · '+(p.count?p.count+' check'+(p.count===1?'':'s')+' · typical miss '+p.mae.toFixed(digits)+unit+' · bias '+(p.bias>=0?'+':'')+p.bias.toFixed(digits)+unit:'No comparable checks yet')+'</p>';}).join('');};
  const before=render;render=function(...args){before(...args);update();};update();
 }
+// Reuse pure model work only inside one synchronous UI operation. Never keep a
+// chemistry result across edits, settings changes, saves, syncs or clock ticks.
+let uiPerformanceContext=null;
+let uiChartsDirty=true,uiChartsLast=0;
+function requestUiCharts(events){if(typeof window!=='undefined'&&$('tab-trends').hidden){uiChartsDirty=true;return}return renderCharts(events)}
+function requestUiModelDetails(){if(typeof window==='undefined'||!$('tab-trends').hidden&&beta.open)return renderModelBeta()}
+function uiPerformanceRun(fn){
+ if(uiPerformanceContext)return fn();
+ uiPerformanceContext={values:new Map(),ids:new WeakMap(),nextId:0,raw:null,rows:null};
+ try{return fn()}finally{uiPerformanceContext=null}
+}
+function uiPerformanceScope(fn){return function(...args){return uiPerformanceRun(()=>fn.apply(this,args))}}
+function uiPerformanceMemo(name,fn){return function(...args){return uiPerformanceRun(()=>{
+ const c=uiPerformanceContext,identity=value=>{
+  if(Array.isArray(value))return '['+value.map(identity).join(',')+']'+(value.acidAudit?'@audit:'+identity(value.acidAudit):'');
+  if(value&&typeof value==='object'){if(!c.ids.has(value))c.ids.set(value,++c.nextId);return '@'+c.ids.get(value)}
+  return typeof value+':'+JSON.stringify(value);
+ },key=name+'|'+Math.floor(Date.now()/60000)+'|'+args.map(identity).join('|');
+ if(c.values.has(key))return c.values.get(key);
+ const result=fn.apply(this,args);c.values.set(key,result);return result;
+})}}
+function setupUiPerformance(){
+ // Each read still returns an independent array: existing callers may sort it.
+ // Event objects are shared only during this synchronous read-only operation.
+ const originalRead=read;read=function(){const c=uiPerformanceContext;if(!c)return originalRead();const raw=localStorage.getItem(KEY)||'[]';if(c.raw!==raw){c.raw=raw;c.rows=originalRead();c.values.clear()}return c.rows.slice()};
+ stripTrainingEvents=uiPerformanceMemo('stripTrainingEvents',stripTrainingEvents);
+ calculatedCya=uiPerformanceMemo('calculatedCya',calculatedCya);
+ calculatedBorates=uiPerformanceMemo('calculatedBorates',calculatedBorates);
+ buildParameterFramework=uiPerformanceMemo('buildParameterFramework',buildParameterFramework);
+ learnBalanceEffects=uiPerformanceMemo('learnBalanceEffects',learnBalanceEffects);
+ phGasFit=uiPerformanceMemo('phGasFit',phGasFit);
+ buildDecayModel=uiPerformanceMemo('buildDecayModel',buildDecayModel);
+ acidDoseCalibration=uiPerformanceMemo('acidDoseCalibration',acidDoseCalibration);
+ validForecastReviews=uiPerformanceMemo('validForecastReviews',validForecastReviews);
+ automaticDosePairs=uiPerformanceMemo('automaticDosePairs',automaticDosePairs);
+ balanceProjection=uiPerformanceScope(balanceProjection);fcProjection=uiPerformanceScope(fcProjection);
+ const charts=renderCharts;renderCharts=uiPerformanceScope(function(...args){const result=charts(...args);if(!args[1]?.target||args[1].target==='trendCharts'){uiChartsDirty=false;uiChartsLast=Date.now()}return result});renderExtras=uiPerformanceScope(renderExtras);
+ renderModelBeta=uiPerformanceScope(renderModelBeta);renderActionGuidance=uiPerformanceScope(renderActionGuidance);
+ render=uiPerformanceScope(render);calculate=uiPerformanceScope(calculate);
+ const tab=setTab;setTab=function(...args){const result=tab(...args);if(args[0]==='trends'){if(uiChartsDirty||Date.now()-uiChartsLast>=60000)renderCharts(activeEvents());requestUiModelDetails()}return result};
+ if(typeof window!=='undefined')beta.addEventListener('toggle',()=>{if(beta.open&&!$('tab-trends').hidden)renderModelBeta()});
+}
 // END GENERATED APP UI
+setupUiPerformance();
 migrateLegacy();fillNow();render();calculate();connect();
 setupAppUi();
 setupAppWorkflow();
@@ -2372,6 +2419,9 @@ setupGuestMode();
 setupSourceWater();
 setupGuestPractice();
 setupForecastUsability();
+render=uiPerformanceScope(render);
+updateExpandedChart=uiPerformanceScope(updateExpandedChart);
+openExpandedChart=uiPerformanceScope(openExpandedChart);
 setupPwa();
 </script>
 </body>
