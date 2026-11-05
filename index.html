@@ -146,7 +146,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.67.0',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.67.1',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -1612,7 +1612,7 @@ body.app-ui{padding-bottom:calc(92px + env(safe-area-inset-bottom))}.app-ui .bra
   $('chartScaleMode').onchange=()=>{if($('chartScaleMode').value==='custom'){$('chartRangeControls').open=true;$('chartScaleMin').focus();return;}localStorage.setItem('j365_chart_scale_'+expandedChartKey,JSON.stringify({mode:$('chartScaleMode').value}));updateExpandedChart();};
   $('applyChartScale').onclick=()=>{const min=num($('chartScaleMin').value),max=num($('chartScaleMax').value);if(min==null||max==null||min<0||max<=min){$('chartScaleError').textContent='Choose a maximum greater than the minimum.';return;}localStorage.setItem('j365_chart_scale_'+expandedChartKey,JSON.stringify({mode:'custom',min,max}));$('chartScaleMode').value='custom';$('chartScaleError').textContent='';$('chartRangeControls').open=false;updateExpandedChart();};
   $('applyChartRange').addEventListener('click',()=>{if(!$('chartRangeError').textContent)$('chartRangeControls').open=false;});
-  let resizeFrame;window.addEventListener('resize',()=>{window.cancelAnimationFrame?.(resizeFrame);resizeFrame=schedule(()=>{if(chartViewer.open)updateExpandedChart();else requestUiCharts(activeEvents());});});
+  let resizeFrame,layoutWidth=window.innerWidth;window.addEventListener('resize',()=>{const widthChanged=layoutWidth!==window.innerWidth;layoutWidth=window.innerWidth;if(!widthChanged&&(!chartViewer.open||mobileEditableField(document.activeElement)||document.body.classList.contains('keyboard-open')))return;window.cancelAnimationFrame?.(resizeFrame);resizeFrame=schedule(()=>{if(chartViewer.open)updateExpandedChart();else requestUiCharts(activeEvents());});});
   // Pinch affects the view only. Single-finger inspection retains the existing behavior.
   const fingers=new Map();let pinch=null;const plot=$('expandedChart');
   plot.addEventListener('pointerdown',e=>{if(!e.target.closest('svg'))return;plot.setPointerCapture?.(e.pointerId);fingers.set(e.pointerId,e.clientX);if(fingers.size===2){const a=[...fingers.values()];pinch={distance:Math.max(10,Math.abs(a[0]-a[1])),start:parseSpaTime($('chartStart').value),end:parseSpaTime($('chartEnd').value)};} });
@@ -2409,6 +2409,57 @@ function setupUiPerformance(){
  const tab=setTab;setTab=function(...args){const result=tab(...args);if(args[0]==='trends'){if(uiChartsDirty||Date.now()-uiChartsLast>=60000)renderCharts(activeEvents());requestUiModelDetails()}return result};
  if(typeof window!=='undefined')beta.addEventListener('toggle',()=>{if(beta.open&&!$('tab-trends').hidden)renderModelBeta()});
 }
+// Keyboard layout only. Never stage, submit, save, convert or reset field values.
+function mobileEditableField(node){return !!node?.matches?.('textarea,input:not([type]),input[type="text"],input[type="number"],input[type="email"],input[type="tel"],input[type="url"],input[type="search"],input[type="password"]')&&!node.disabled&&!node.readOnly}
+function setupMobileInput(){
+ if(typeof window==='undefined'||!document.body)return;
+ const touch=()=>navigator.maxTouchPoints>0||window.matchMedia?.('(pointer: coarse)')?.matches,
+  viewport=window.visualViewport,style=document.createElement('style');
+ style.textContent=`
+body.app-ui.keyboard-open .tabs,body.app-ui.keyboard-open .save-bar,body.app-ui.keyboard-open .toast,body.app-ui.keyboard-open #appSaveNotice{display:none!important}
+body.app-ui.keyboard-open input,body.app-ui.keyboard-open textarea{scroll-margin-top:12px;scroll-margin-bottom:58px}
+@media(pointer:coarse){body.app-ui input,body.app-ui textarea,body.app-ui select{font-size:16px}}
+#mobileInputBar{position:fixed;left:50%;transform:translateX(-50%);width:min(100%,720px);box-sizing:border-box;z-index:2000;display:flex;align-items:center;gap:6px;padding:4px 10px;background:#142d39;border-top:1px solid #41636b;box-shadow:0 -3px 14px #0003}
+#mobileInputBar[hidden]{display:none!important}#mobileInputBar button{flex:none;width:auto;min-height:40px;margin:0;padding:6px 12px;font-size:14px;border-radius:8px}#mobileInputBar button:disabled{opacity:.35}#mobileInputLabel{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#aac4ce;font-size:12px}
+@media(prefers-reduced-motion:reduce){#mobileInputBar{scroll-behavior:auto}}
+`;
+ document.head.append(style);
+ const bar=document.createElement('div');bar.id='mobileInputBar';bar.hidden=true;bar.setAttribute('role','group');bar.setAttribute('aria-label','Field controls');bar.innerHTML='<button type="button" id="mobileInputPrevious" aria-label="Previous field">‹</button><button type="button" id="mobileInputNext" aria-label="Next field">Next</button><span id="mobileInputLabel"></span><button type="button" id="mobileInputDone">Done</button>';document.body.append(bar);
+ let field=null,fullHeight=window.innerHeight,lastWidth=window.innerWidth,frame=null;
+ const visible=node=>mobileEditableField(node)&&node.isConnected&&!node.closest('[hidden],[inert]')&&node.getClientRects().length>0,
+  fields=()=>{const scope=field?.closest('form')||field?.closest('dialog[open]')||field?.closest('.tab')||document.body;return [...scope.querySelectorAll('input,textarea')].filter(visible)},
+  configure=node=>{if(!mobileEditableField(node))return;if(node.type==='number'&&!node.hasAttribute('inputmode'))node.inputMode=(node.getAttribute('step')||'1')==='1'?'numeric':'decimal';if(node.tagName!=='TEXTAREA'&&!node.hasAttribute('enterkeyhint'))node.enterKeyHint='next'};
+ const scan=node=>{if(node.nodeType!==1)return;configure(node);node.querySelectorAll('input,textarea').forEach(configure)};scan(document.body);
+ new MutationObserver(records=>{for(const r of records)for(const node of r.addedNodes)scan(node)}).observe(document.body,{subtree:true,childList:true});
+ function update(){
+  frame=null;
+  if(window.innerWidth!==lastWidth){fullHeight=Math.max(window.innerHeight,lastWidth);lastWidth=window.innerWidth}
+  fullHeight=Math.max(fullHeight,window.innerHeight,viewport?.height??0);
+  const active=document.activeElement;if(mobileEditableField(active))field=active;else if(!bar.contains(active))field=null;
+  const open=!!(touch()&&visible(field)&&(viewport?.scale??1)<=1.05&&fullHeight-(viewport?.height??window.innerHeight)>Math.max(120,fullHeight*.18));
+  document.body.classList.toggle('keyboard-open',open);bar.hidden=!open;
+  if(!open)return;
+  const host=field.closest('dialog[open]')||document.body;if(bar.parentElement!==host)host.append(bar);
+  const bottom=Math.max(0,window.innerHeight-(viewport?.height??window.innerHeight)-(viewport?.offsetTop??0));bar.style.bottom=bottom+'px';
+  const list=fields(),index=list.indexOf(field);$('mobileInputPrevious').disabled=index<=0;$('mobileInputNext').disabled=index<0||index===list.length-1;
+  $('mobileInputLabel').textContent=(field.labels?.[0]?.textContent||(field.previousElementSibling?.tagName==='LABEL'?field.previousElementSibling.textContent:'')||field.getAttribute('aria-label')||field.placeholder||'').trim();
+  if(field.tagName!=='TEXTAREA')field.enterKeyHint=index===list.length-1?'done':'next';
+  // Scroll only when obscured, by the minimum amount. Do not recenter on every
+  // viewport event or restore an old scroll position after the keyboard closes.
+  const box=field.getBoundingClientRect(),top=(viewport?.offsetTop??0)+12,end=(viewport?.offsetTop??0)+(viewport?.height??window.innerHeight)-(bar.getBoundingClientRect().height||48)-12,
+   delta=box.height>end-top?box.top-top:box.bottom>end?box.bottom-end:box.top<top?box.top-top:0;
+  if(Math.abs(delta)>1){const dialog=field.closest('dialog[open]');if(dialog)dialog.scrollTop+=delta;else window.scrollBy?.({top:delta,behavior:'instant'})}
+ }
+ function schedule(){if(frame==null)frame=window.requestAnimationFrame?window.requestAnimationFrame(update):window.setTimeout(update,0)}
+ function done(){field?.blur();if(bar.contains(document.activeElement))document.activeElement.blur();field=null;document.body.classList.remove('keyboard-open');bar.hidden=true}
+ function move(direction){const list=fields(),next=list[list.indexOf(field)+direction];if(next){next.focus({preventScroll:true});field=next;schedule()}else done()}
+ bar.addEventListener('pointerdown',e=>{if(e.target.closest('button'))e.preventDefault()});
+ $('mobileInputPrevious').onclick=()=>move(-1);$('mobileInputNext').onclick=()=>move(1);$('mobileInputDone').onclick=done;
+ document.addEventListener('focusin',e=>{if(mobileEditableField(e.target)){field=e.target;configure(field);schedule()}});
+ document.addEventListener('focusout',()=>window.setTimeout(schedule,0));
+ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing&&touch()&&mobileEditableField(e.target)&&e.target.tagName!=='TEXTAREA'){e.preventDefault();field=e.target;move(1)}});
+ window.addEventListener('resize',schedule);viewport?.addEventListener('resize',schedule);viewport?.addEventListener('scroll',schedule);
+}
 // END GENERATED APP UI
 setupUiPerformance();
 migrateLegacy();fillNow();render();calculate();connect();
@@ -2422,6 +2473,7 @@ setupForecastUsability();
 render=uiPerformanceScope(render);
 updateExpandedChart=uiPerformanceScope(updateExpandedChart);
 openExpandedChart=uiPerformanceScope(openExpandedChart);
+setupMobileInput();
 setupPwa();
 </script>
 </body>

@@ -4,6 +4,9 @@ Static, local-first logger with authenticated private GitHub synchronization thr
 
 ## Development and tests
 
+See [v6.67.1 mobile keyboard notes](docs/mobile-input-6.67.1.md) for viewport-aware
+entry controls and mobile keyboard testing limitations.
+
 See [v6.67.0 UI performance notes](docs/ui-performance-6.67.0.md) for profiling,
 operation-scoped model reuse, on-demand charts and numerical-parity checks.
 
