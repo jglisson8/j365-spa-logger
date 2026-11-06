@@ -3,12 +3,27 @@ function guestInvitationMessage(grant,link){
  const windowText=grant?.starts_at&&grant?.ends_at?'Access: '+SpaTime.format(Date.parse(grant.starts_at),{dateStyle:'medium',timeStyle:'short'})+' to '+SpaTime.format(Date.parse(grant.ends_at),{dateStyle:'medium',timeStyle:'short'})+' (Mountain time).\n\n':'';
  return 'Hi '+(grant?.label||'there')+'! Here is your J-365 Spa Log invitation. No account needed.\n\n'+windowText+'Link:\n'+link+'\n\nI will send your access code separately.\n\nOpen in Chrome on Android or Safari on iPhone, not the texting app’s browser. Enter the code once, then use the same browser. Avoid private/incognito mode and do not clear its cookies. Normal refreshes are fine.\n\nLog tests, soaks and actual doses; Trends and Instructions are there when needed. Internet is required. Keep this private. If you change phones/browsers or lose access, ask me to reset it.';
 }
-let guestContext=null,guestPending=null,guestBusy=false,guestConnecting=false,guestCorrection=null,guestBaseline=null,guestTimeEdited=false,guestContextLoadedAt=0;
+let guestContext=null,guestPending=null,guestBusy=false,guestConnecting=false,guestCorrection=null,guestBaseline=null,guestTimeEdited=false;
 function guestSignature(){return $('guestForm')?JSON.stringify([...$('guestForm').querySelectorAll('input,select')].map(e=>[e.id,e.id==='guestAt'&&!guestTimeEdited&&!guestCorrection?'NOW':e.value,e.checked])):null;}
 function guestStatus(message){if($('guestStatus'))$('guestStatus').textContent=message;}
-const GUEST_AFTER_DOSE='Keep the cover open and run Jets 1 and Jets 2 for at least 20 minutes (longer if the label says). Keep everyone out, then retest before soaking.';
-const GUEST_DOSE_DETAILS='Use one chemical at a time; never mix bleach and acid. Follow the product label for handling, mixing and re-entry. Time alone does not confirm safe water. Keep children and animals away and supervise an accessible open spa.';
-function guestQuickGuide(){return '<h2>Quick spa guide</h2><ol><li><strong>Log → Test.</strong> Check FC and pH before use. Follow the strip bottle’s timing, choose the matching colors, then <strong>Save entry</strong>.</li><li><strong>Log → Dose.</strong> Select bleach or pH Down. Review the calculation, then <strong>Use this amount</strong>. Nothing saves yet. Add the chemical, confirm the actual amount, then <strong>Save entry</strong>.</li><li><strong>After any dose.</strong> '+GUEST_AFTER_DOSE+'</li><li><strong>Log → Soak.</strong> Enter bathers, minutes and jets/air, then <strong>Save entry</strong>. Time is the soak’s start; change it if logging afterward. Secure the cover afterward.</li></ol><p><strong>Save failed?</strong> Retry the same entry—never add the chemical again.</p><details><summary>Dose help, Trends &amp; corrections</summary><p>Check bleach dose is a shortcut to Log → Dose. A fresh saved test is required. No extra dose suggested means the strip range does not clearly need correction; unavailable calculations explain what to check. Do not guess or treat invitation limits as a recommended dose.</p><p>pH Down uses a conservative calculated correction only when the strip’s lower working bound exceeds 7.8 and usable TA/buffer context is available. A 7.8 block overlaps the limit, so normally no acid is suggested. Mix and log a fresh FC/pH strip test before any further acid; include optional alkalinity if requested. No Taylor drops are required.</p><p>Suggested bleach is ¼, ⅓ or ½ cup; suggested pH Down is whole tablespoons. Suggestions round down, never up. Actual additions may be recorded in other units. Changing units does not convert a typed number. Record the actual addition time under Time: Now · change.</p><p>Trends compares samples with ≈ forecasts, not proof that water is safe. Cloudy water or readings outside limits? Do not soak until checked.</p><p>Log → Your recent entries has Correct my entry and Remove my entry. Corrections do not mean adding another dose. Practice changes are temporary; never dose the real tub from practice mode.</p></details><h3>From the owner</h3><p id="guestGuideOwner" style="white-space:pre-wrap">Connect to load the owner’s instructions.</p><details><summary>Chemicals &amp; safety details</summary><p>'+GUEST_DOSE_DETAILS+'</p><p>The app does not calculate an acid dose by inventing Taylor acid-demand drops. Strip-based corrections are provisional equilibrium calculations, not guaranteed pH endpoints.</p><a href="https://jacuzzipartners.com/knowledgelibrary/assets/pdf/4666.pdf" target="_blank" rel="noopener noreferrer">Jacuzzi J-300 circulation guidance, §13.2</a></details><p><button type="button" class="secondary" id="guestGuideTest">Log a test</button> <button type="button" class="secondary" id="guestGuideTrends">View Trends</button></p>';}
+const GUEST_AFTER_DOSE='Keep the cover open and run Jets 1 and Jets 2 until mixed. Keep everyone out while treating the water; test after the final dose before soaking. Follow product-label handling and re-entry directions.';
+const GUEST_DOSE_DETAILS='Only adults handle chemicals. Never mix bleach and acid together or use contaminated measuring tools. Add one product at a time to the water with the jets running. Follow label precautions and re-entry limits. Keep children and animals away while dosing.';
+function guestQuickGuide(){return `<h2>Quick spa guide</h2>
+<ol>
+<li><strong>Log → Check water.</strong> Match the free chlorine (FC) and pH colors on the bottle. Tap <strong>Save test</strong>.</li>
+<li><strong>Follow the suggested dose.</strong> Tap <strong>Use this amount</strong>. After an adult adds it, confirm the actual amount and tap <strong>Save dose</strong>.</li>
+<li><strong>If both products are needed:</strong> bleach first. Run both jets with the cover open until mixed, then tap <strong>Mixing finished—continue to pH Down</strong>. After the final dose, circulate and test before soaking.</li>
+<li><strong>Log → Soak.</strong> Choose people, minutes and jets/air, then <strong>Save soak</strong>. Change the start time if logging afterward. Secure the cover when finished.</li>
+</ol>
+<p><strong>Save failed?</strong> Retry the same entry—never add the chemical again.</p>
+<details><summary>More help</summary>
+<p>No dose shown? Follow the message rather than guessing an amount.</p>
+<p>Trends shows samples and ≈ forecasts. Cloudy water or readings outside limits? Do not soak until checked.</p>
+<p>Other options → Enter a dose manually records an addition already completed. Your recent entries → Correct my entry or Remove my entry fixes mistakes without adding chemicals again.</p>
+</details>
+<h3 id="guestGuideOwnerHeading" hidden>From the owner</h3><p id="guestGuideOwner" style="white-space:pre-wrap" hidden></p>
+<details><summary>Chemical handling</summary><p>${GUEST_DOSE_DETAILS}</p></details>
+<p><button type="button" class="secondary" id="guestGuideTest">Log a test</button> <button type="button" class="secondary" id="guestGuideTrends">View Trends</button></p>`;}
 function guestDoseReminder(){const box=$('guestAfterDose');if(box){box.hidden=false;box.querySelector('p').textContent='Dose saved. If you have not already done so: '+GUEST_AFTER_DOSE;box.scrollIntoView?.({behavior:'smooth',block:'start'});}}
 async function guestRemove(id){
  if(guestBusy||!confirm('Remove your own accidental entry? The original remains in the audit history.'))return;
@@ -33,12 +48,12 @@ async function connectGuest(){
    await api('/api/guest/redeem',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({invitation:guestInvitationToken,access_code:$('guestAccessCode').value.trim()})});guestInvitationToken=null;$('guestAccessCode').value='';
   }
   session=await api('/api/guest/me');if(session.role!=='guest')throw Error('Open your guest invitation link.');
-  const data=await api('/api/guest/context');guestContext=data;guestContextLoadedAt=Date.now();config=data.config;write(data.events);render();
+  const data=await api('/api/guest/context');guestContext=data;config=data.config;write(data.events);render();
   $('guestActivation').hidden=true;$('guestForm').hidden=false;
   $('identity').textContent='Guest · '+data.user;$('syncState').textContent='Connected';
   if(GUEST_PRACTICE){$('identity').textContent='Guest practice · '+(data.snapshot?'actual water snapshot':'synthetic data');$('syncState').textContent='Not synced';refreshGuestPracticeBanner();}
   $('guestInstructions').textContent=data.instructions||'Record strip tests, soaks and completed doses. Forecasts are approximate, not acid-dose instructions.';
-  $('guestGuideOwner').textContent=data.instructions||'No additional owner instructions are saved. Use the calculated dose only when the app provides one; dose caps are not recommendations.';
+  $('guestGuideOwner').textContent=data.instructions||'';$('guestGuideOwner').hidden=!data.instructions?.trim();$('guestGuideOwnerHeading').hidden=$('guestGuideOwner').hidden;
   $('guestGoalSummary').textContent='Dosing goals: pH '+(data.config.targets?.guest_ph_target??7.4)+' · FC '+(data.config.targets?.guest_fc_target_ppm??data.config.targets?.fc_target_ppm??7.5)+' ppm. Dose limits still apply.';
   $('guestExpiry').textContent='Access ends '+SpaTime.format(Date.parse(data.expires_at),{dateStyle:'medium',timeStyle:'short'});
   const selectedProduct=$('guestProduct').value;

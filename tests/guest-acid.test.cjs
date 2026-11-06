@@ -10,7 +10,7 @@ assert.equal(plan([fill,{...ta,ta_ppm:40},sample]).status,'check');assert.equal(
 assert.equal(plan(rows,[]).status,'check');assert.equal(plan(rows,[{...products[0],profile:{...profile,density:null}}]).status,'check');assert.equal(plan(rows,[{...products[0],max_single_mL:.01}]).status,'check');
 assert.equal(plan([fill,ta,{...sample,...at(now-31*minute)}]).status,'check');
 for(const type of ['soak','chemical_addition','water_change','water_top_off'])assert.equal(plan([...rows,{id:'later',type,fill_cycle_id:'fill-acid',...at(now)}]).status,'check');
-const dose={id:'acid-before',type:'chemical_addition',fill_cycle_id:'fill-acid',product:profile.name,product_profile:profile,product_id:profile.id,amount:.1,unit:'tsp',guest_actor:{user_id:'practice-guest'},...at(now-10*minute)};assert.equal(plan([fill,ta,dose,sample]).status,'check','Immediate post-dose test cannot permit repeat acid');
+const dose={id:'acid-before',type:'chemical_addition',fill_cycle_id:'fill-acid',product:profile.name,product_profile:profile,product_id:profile.id,amount:.1,unit:'tsp',guest_actor:{user_id:'practice-guest'},...at(now-10*minute)};assert.equal(plan([fill,ta,dose,sample]).status,'dose','A fresh post-dose test is not blocked by an arbitrary elapsed-time minimum');assert.equal(plan([fill,ta,sample,{...dose,...at(now)}]).status,'check','Without a post-dose test, do not repeat acid');
 assert.equal(plan([fill,ta,{...sample,fc_ppm:20,measurement_method:'paired',measurement_sources:{ph:'test_strip',fc_ppm:'taylor'}}]).status,'check');
 const noBuffers=[ta,sample];w.eval('config={schema_version:2,spa:{volume_gallons:395}}');assert.equal(plan(noBuffers).status,'check');w.eval('config='+JSON.stringify(settings));
 // Practical doses across low/high TA and fill inventories preserve the
@@ -32,4 +32,4 @@ assert.ok(w.guestPracticalDose(r).suggested_amount>=3,'Buffered 8.4-strip scenar
 for(const unit of ['cup','tbsp','tsp','fl oz','mL'])assert.ok(w.guestSuggestedAmount(r.mL,unit)*w.eval('PRODUCT_VOLUME')[unit]<=r.mL+.00001);
 // Settings patch targets only the leaf, leaving unrelated targets intact.
 w.stageConfigField('fc_target_ppm',4,settings);const applied=w.applyGeneralPatch({...settings,targets:{...settings.targets,ph_post_adjustment_max:7.4}});assert.equal(applied.targets.fc_target_ppm,4);assert.equal(applied.targets.ph_post_adjustment_max,7.4);assert.equal(applied.targets.cya_ppm,30);
-dom.window.close();console.log('PASS: conservative strip acid equilibrium steps, overlap/no-dose, TA and buffer guards, stale/intervening tests, 20-minute retest lock, product conversion/caps, immutable history and FC target leaf patch');
+dom.window.close();console.log('PASS: conservative strip acid equilibrium steps, overlap/no-dose, TA and buffer guards, stale/intervening tests, chronological post-dose test guard, product conversion/caps, immutable history and FC target leaf patch');

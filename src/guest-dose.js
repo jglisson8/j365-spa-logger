@@ -8,7 +8,7 @@ function guestBleachPlan(events,products,settings,userId,now=Date.now()){
  if(!sample||now-modelTime(sample)>30*60000)return stop('Log a fresh FC test to calculate bleach.');
  const time=modelTime(sample);
  const lastDose=events.filter(e=>e.type==='chemical_addition'&&modelTime(e)!=null&&modelTime(e)<=time).sort(timelineOrder).at(-1);
- if(lastDose&&time-modelTime(lastDose)<20*60000)return stop('Allow at least 20 minutes of mixing after the last dose, then save a fresh FC test before calculating more bleach.');
+ if(lastDose&&timelineOrder(sample,lastDose)<=0)return stop('Circulate until mixed, then save a fresh FC test after the last dose before calculating more bleach.');
  if(events.some(e=>e.id!==sample.id&&Number.isFinite(modelTime(e))&&modelTime(e)<=now+60000&&timelineOrder(e,sample)>0&&(['soak','chemical_addition','water_change','water_top_off'].includes(e.type)||isExposure(e))))return stop('Water has changed since that test. Retest FC before calculating another dose.');
  const range=isStripParameter(sample,'fc_ppm')?stripReading(sample,'fc_ppm'):null;
  if(isStripParameter(sample,'fc_ppm')&&(!range||range.censored||!Number.isFinite(range.maximum)))return stop('That strip result is off scale. Confirm FC before adding bleach.');
@@ -60,14 +60,13 @@ function guestCombinedAcidPlan(events,products,settings,userId,now=Date.now()){
  if(!(Number.isFinite(mass)&&mass>0))return stop('The actual bleach amount cannot be checked. Log a fresh test before pH Down.');
  const upperFc=bleach.assumed_fc+mass*1000/(volume*3.78541);
  if(upperFc>10)return stop('The logged bleach could put FC above 10 ppm. Test FC before pH Down.');
- const readyAt=modelTime(dose)+20*60000;
- return {...acid,sequence:true,bleach_id:dose.id,ready_at:readyAt,estimated_fc_upper:upperFc,status:now<readyAt?'wait':'dose',message:now<readyAt?'Bleach saved. Keep the cover open and Jets 1 and 2 running. pH Down will be offered after the 20-minute mixing wait.':'Next: pH Down, using the original test and the checked bleach addition. This is a calculation, not a new water reading. Mix and retest after pH Down before soaking.'};
+ return {...acid,sequence:true,bleach_id:dose.id,estimated_fc_upper:upperFc,status:'dose',message:'Uses the original test and logged bleach addition—not a new measurement. Circulate and test after the final dose before soaking.'};
 }
 function guestUiDosePlan(profile,events,products,settings,userId){
  if(profile?.family==='bisulfate'&&typeof guestFlow!=='undefined'&&guestFlow.phase==='sequence'){
   const combined=guestCombinedAcidPlan(events,products,settings,userId);
   if(!combined)return {status:'check',message:'The water history changed or this dose sequence expired. Log a fresh test before another dose.'};
-  if(combined.status==='dose'&&guestContextLoadedAt<combined.ready_at)return {...combined,status:'wait',message:'Mixing wait finished. Checking the latest saved water data before pH Down…'};
+  if(combined.status==='dose'&&!(guestFlow.mixing_confirmed&&guestFlow.bleach_id===combined.bleach_id))return {...combined,status:'mixing',message:'Bleach saved. Run both jets with the cover open until mixed, then continue to pH Down.'};
   return combined;
  }
  return guestPracticalDose((profile?.family==='bisulfate'?guestAcidPlan:guestBleachPlan)(events,products,settings,userId));
@@ -75,10 +74,10 @@ function guestUiDosePlan(profile,events,products,settings,userId){
 function guestAcidPlan(events,products,settings,userId,now=Date.now()){
  const stop=message=>({status:'check',message}),approved=products.find(p=>p.profile.family==='bisulfate');if(!approved)return stop('pH Down is not enabled for this invitation.');
  const sample=events.filter(e=>e.type==='chemistry'&&Number.isFinite(e.ph)&&modelTime(e)!=null&&modelTime(e)<=now+60000).sort(timelineOrder).at(-1);
- if(!sample||now-modelTime(sample)>30*60000)return stop('Log → Test: save a fresh pH and FC strip test first.');
+ if(!sample||now-modelTime(sample)>30*60000)return stop('Log → Check water: save a fresh pH and FC strip test first.');
  const fill=effectiveModelFill(sample,events),rows=events.filter(e=>effectiveModelFill(e,events)===fill),time=modelTime(sample);
  const lastDose=rows.filter(e=>e.type==='chemical_addition'&&modelTime(e)!=null&&modelTime(e)<=now).sort(timelineOrder).at(-1);
- if(lastDose&&time-modelTime(lastDose)<20*60000)return stop('Allow at least 20 minutes of mixing after the last dose, then save a fresh FC/pH strip test before another acid step.');
+ if(lastDose&&timelineOrder(sample,lastDose)<=0)return stop('Circulate until mixed, then save a fresh FC/pH strip test after the last dose before another acid correction.');
  if(events.some(e=>e.id!==sample.id&&timelineOrder(e,sample)>0&&modelTime(e)<=now+60000&&(['soak','chemical_addition','water_change','water_top_off'].includes(e.type)||isExposure(e))))return stop('Water changed after that test. Mix, then save a fresh FC/pH strip test before calculating more acid.');
  const fc=rows.filter(e=>e.type==='chemistry'&&Number.isFinite(e.fc_ppm)&&modelTime(e)!=null&&modelTime(e)<=time).sort(timelineOrder).at(-1),fcRange=fc&&isStripParameter(fc,'fc_ppm')?stripReading(fc,'fc_ppm'):null;
  if(!fc||time-modelTime(fc)>30*60000||(fcRange?fcRange.maximum==null||fcRange.maximum>10:fc.fc_ppm>10))return stop('Save a fresh usable FC test too. High or off-scale chlorine can interfere with pH colors.');
@@ -90,7 +89,7 @@ function guestAcidPlan(events,products,settings,userId,now=Date.now()){
  // The desired endpoint is distinct from the conservative correction trigger.
  if(!(lower>7.8))return {...base,status:'none',message:'No acid suggested: this pH range overlaps 7.8 or below. Goal '+target.toFixed(1)+'; retest rather than guessing a dose.'};
  const taSample=rows.filter(e=>e.type==='chemistry'&&Number.isFinite(e.ta_ppm)&&modelTime(e)!=null&&modelTime(e)<=time).sort(timelineOrder).at(-1);
- if(!taSample||time-modelTime(taSample)>30*86400000)return stop('Log → Test → Optional · alkalinity: add a TA strip result to support the acid calculation.');
+ if(!taSample||time-modelTime(taSample)>30*86400000)return stop('Log → Check water → Optional · alkalinity: add a TA strip result to support the acid calculation.');
  const p=balanceProjection(rows.filter(e=>timelineOrder(e,sample)<=0),'ta_ppm',time),u=taUncertainty(p,rows,time),taRange=isStripParameter(taSample,'ta_ppm')?stripReading(taSample,'ta_ppm'):null;
  let taLow=Number.isFinite(p.current)?Math.min(p.current-10,u?.current_band?.[0]??Infinity):NaN;
  if(taRange){if(!Number.isFinite(taRange.maximum)||taRange.censored)return stop('TA is off scale. Confirm alkalinity before acid.');const changes=Number.isFinite(p.current)?p.current-taSample.ta_ppm:NaN;taLow=Math.min(taLow,taRange.minimum+changes);}
@@ -108,7 +107,7 @@ function guestAcidPlan(events,products,settings,userId,now=Date.now()){
  const correction=acidDoseCalibration(rows,sample.timestamp,approved.profile),taReduction=Math.min(demand*Math.min(1,correction.factor),taLow-40),grams=taReduction*(volume*3.78541)*120.06/(50000*(purity.value/100)),mL=Math.floor(grams/perML*10)/10;
  const used=events.filter(e=>e.type==='chemical_addition'&&e.product_id===approved.profile.id&&e.guest_actor?.user_id===userId&&Date.parse(e.created_at)>now-86400000).reduce((s,e)=>s+e.amount*(PRODUCT_VOLUME[e.unit]||0),0);
  if(!(mL>0&&approved.max_single_mL>0&&approved.max_daily_mL>0)||mL>approved.max_single_mL+.00001||used+mL>approved.max_daily_mL+.00001)return stop('The calculated acid correction exceeds the remaining invitation limit. Do not guess a larger dose.');
- return {...base,status:'dose',mL,volume_gallons:volume,ta_lower:taLow,ta_reduction:taReduction,correction:correction.factor,cya_ppm:cya.value,borates_ppm:borates.value,temperature_f:temperature,message:'Calculated correction toward pH '+target.toFixed(1)+' using the conservative starting range and this fill’s buffer inventory—not a guaranteed endpoint. Add one supported dose, mix for at least 20 minutes (longer if the label says), then retest before soaking. Do not automatically repeat the dose.'};
+ return {...base,status:'dose',mL,volume_gallons:volume,ta_lower:taLow,ta_reduction:taReduction,correction:correction.factor,cya_ppm:cya.value,borates_ppm:borates.value,temperature_f:temperature,message:'Calculated correction toward pH '+target.toFixed(1)+' using the conservative starting range and this fill’s buffer inventory—not a guaranteed endpoint. Add one supported dose, circulate until mixed, then retest before soaking. Do not automatically repeat the dose.'};
 }
 function refreshGuestDoseAdvice(){
  if(!$('guestDoseAdvice'))return;
@@ -125,7 +124,7 @@ function refreshGuestDoseAdvice(){
  const quantity=document.createElement('strong');quantity.style.cssText='display:block;margin-bottom:10px';quantity.textContent=plan.suggested_label+' '+unit+' '+plan.profile.name;
  const context=document.createElement('p');context.className='help';context.textContent=acid?'pH lower working bound ≈'+plan.assumed_ph.toFixed(1)+' ('+plan.source+') · calculated correction toward '+plan.target.toFixed(1)+' · '+plan.volume_gallons+' gal':'FC '+plan.assumed_fc+' ppm ('+plan.source+') → target '+plan.target+' ppm'+(plan.target_default?' (default; not yet set by owner)':'')+' · '+plan.volume_gallons+' gal';
  if(acid&&unit==='cup')context.textContent+=' · ≈'+(amount*48).toFixed(2)+' tsp (same amount)';
- const use=document.createElement('button');use.id='guestUseSuggested';use.type='button';use.className='secondary';use.textContent=plan.sequence?'Mixing finished · use this amount':'Use this amount';
+ const use=document.createElement('button');use.id='guestUseSuggested';use.type='button';use.className='secondary';use.textContent='Use this amount';
  use.onclick=()=>{
   if(guestBusy||guestCorrection)return;
   const current=planner(activeEvents(),guestContext?.products||[],config,session?.user_id);
