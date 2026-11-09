@@ -6,7 +6,9 @@ function sample(id,ts){return {id,type:'chemistry',fill_cycle_id:fill.id,timesta
 function acid(id,ts,amount=6,unit='tbsp'){return {id,type:'chemical_addition',fill_cycle_id:fill.id,timestamp:ts,created_at:stamp(ts),product:'Leisure Time Spa Down',product_id:profile.id,product_profile:JSON.parse(JSON.stringify(profile)),amount,unit}}
 const history=[fill];for(const day of ['25','26']){const before=sample('before-'+day,'2026-10-'+day+'T12:00'),dose=acid('cal-dose-'+day,'2026-10-'+day+'T12:01',raw*.69,'grams'),after={id:'after-'+day,type:'chemistry',fill_cycle_id:fill.id,timestamp:'2026-10-'+day+'T12:25',created_at:stamp('2026-10-'+day+'T12:25'),ph:7.4};history.push(before,dose,after);}
 const before=sample('oct28-before','2026-10-28T18:25'),dose={...acid('oct28-manual','2026-10-28T18:25'),test_before_dose_id:before.id};c.fixture=[...history,before,dose];
-const plan=run('acidRecommendation(9,395,fixture,fixture.at(-1).timestamp,profileById("legacy-acid"))');assert.equal(plan.correction.factor,.69);assert.equal(plan.correction.count,2);assert.ok(Math.abs(run('profileMassAmount(profileById("legacy-acid"),'+plan.grams+',"tbsp")')-5.936)<.001);
+// The archived bounded pairs retain their original v1 reconstruction; they
+// are not exact observations for the new live calibration.
+const plan=run('(()=>{const correction=legacyAcidDoseCalibration(fixture,fixture.at(-1).timestamp,profileById("legacy-acid"));return {correction,grams:'+raw+'*correction.factor}})()');assert.equal(plan.correction.factor,.69);assert.equal(plan.correction.count,2);assert.ok(Math.abs(run('profileMassAmount(profileById("legacy-acid"),'+plan.grams+',"tbsp")')-5.936)<.001);
 const projected=run('balanceProjection(fixture,"ph",Date.now())');assert.ok(Math.abs(projected.current-7.4)<.01,'A six-tbsp manual dose must satisfy the ≈5.94-tbsp corrected endpoint, not be classified as 69.7% complete: '+projected.current+' / '+projected.status);
 console.log('PASS: October 28 manual dose uses the same dose-time correction as the calculator');
 assert.equal(projected.workingBound,true);assert.equal(projected.taylorEndpoint.conditional,true);
@@ -18,10 +20,10 @@ const context=run('acidReferenceContext(fixture.at(-1),fixture.at(-2),fixture)')
 c.manual=[JSON.parse(JSON.stringify(before)),JSON.parse(JSON.stringify(dose))];c.history=history;
 run('freezeAcidDoseContexts(manual,history)');const saved=JSON.parse(JSON.stringify(c.manual[1]));
 assert.equal(saved.amount,6);assert.equal(saved.unit,'tbsp');assert.equal(saved.calculation.acid_response_correction.source,'stored_manual');
-assert.equal(saved.calculation.acid_response_correction.factor,.69);
+assert.ok(saved.calculation.acid_response_correction.factor>=.69);assert.equal(saved.calculation.acid_response_correction.count,0);
 assert.equal(saved.calculation.acid_response_correction.reference_mass_grams,raw);
-assert.equal(saved.calculation.acid_response_correction.corrected_mass_grams,raw*.69);
-c.confirmed=[JSON.parse(JSON.stringify(before)),{...JSON.parse(JSON.stringify(dose)),calculation:{measurement_timestamp:before.timestamp,source_measurements:{acid_demand_drops:9,acid_demand_target_ph:7.4},acid_response_correction:{...plan.correction,reference_mass_grams:raw}}}];
+assert.equal(saved.calculation.acid_response_correction.corrected_mass_grams,raw*saved.calculation.acid_response_correction.factor);
+c.confirmed=[JSON.parse(JSON.stringify(before)),{...JSON.parse(JSON.stringify(dose)),calculation:{measurement_timestamp:before.timestamp,source_measurements:{acid_demand_drops:9,acid_demand_target_ph:7.4},acid_response_correction:{...saved.calculation.acid_response_correction,reference_mass_grams:raw}}}];
 run('freezeAcidDoseContexts(confirmed,history)');assert.equal(c.confirmed[1].calculation.acid_response_correction.source,'stored_calculator');
 c.manualEvents=[...history,...c.manual];c.confirmedEvents=[...history,...c.confirmed];
 assert.equal(run('balanceProjection(manualEvents,"ph",Date.now()).current'),run('balanceProjection(confirmedEvents,"ph",Date.now()).current'));
@@ -52,7 +54,7 @@ c.unknownCorrection=[...history,{...history.at(-1),id:'untimed-correction',super
 assert.equal(run('acidReferenceContext(changed.at(-1),changed.at(-2),acidEventSubset(changed,()=>true)).correction.factor'),.69,'Chart subsets retain the read-only original audit');
 c.laterReported=[...history.map(e=>e.id==='after-26'?{...e,created_at:stamp('2026-10-28T18:30'),ph:7.1}:e),before,dose];
 assert.equal(run('acidReferenceContext(laterReported.at(-1),laterReported.at(-2),laterReported).correction.count'),1,'A later-reported retest cannot train an older dose');
-c.frozen=[...correctedHistory,before,saved];assert.equal(run('acidReferenceContext(frozen.at(-1),frozen.at(-2),frozen).correction.factor'),.69);
+c.frozen=[...correctedHistory,before,saved];assert.equal(run('acidReferenceContext(frozen.at(-1),frozen.at(-2),frozen).correction.factor'),saved.calculation.acid_response_correction.factor);
 assert.equal(JSON.stringify(c.fixture),original);
 console.log('PASS: workflow parity, frozen metadata, partial/split/90% doses, endpoint invalidation, fill/product/time and correction-audit boundaries');
 // Old date-only refill corrections and routine service are not missing acid-fit

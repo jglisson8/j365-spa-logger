@@ -23,7 +23,7 @@ const split=project([...fixture.slice(0,3),{...dose,id:'half1',amount:3},{...dos
 const numeric=[fill,ta,{...sample,ph:8,ph_bounds:undefined},dose],n=project(numeric);w.numeric=numeric;
 const numericExpected=w.eval("phFromCarbon({...state,carbon:carbonFromPh(8,state),ta_ppm:140+theoreticalTaChange(numeric[3],numeric)})");assert.ok(Math.abs(n.current-numericExpected)<1e-8);assert.equal(n.partialAcid.scenario,false);
 // Missing/contradictory chemistry retains an explicit qualitative partial response.
-const missing=project([fill,sample,dose]);assert.equal(missing.current,null);assert.match(missing.status,/Partial Taylor response/);assert.match(missing.status,/above 7.40/);
+const missing=project([fill,sample,dose]);assert.equal(missing.current,null);assert.match(missing.status,/Partial Taylor response/);assert.match(missing.status,/no supported numeric curve/);
 const conflict=project([{...fill,starting_cya_ppm:0,starting_borates_ppm:0},ta,sample,dose]);assert.equal(conflict.current,null);assert.match(conflict.status,/Partial Taylor response/);
 // Later actual samples reset forecasts; the automatic learning pipeline remains intact.
 const retest={id:'retest',type:'chemistry',timestamp:'2026-10-19T17:59',fill_cycle_id:'cycle',ph:7.7,ta_ppm:115};

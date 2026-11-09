@@ -21,7 +21,7 @@ assert.ok(values.every((v,i)=>Number.isFinite(v)&&(!i||v<values[i-1])));assert.o
 // pH is solved from alkalinity, not interpolated by the fraction of the dose.
 assert.ok(Math.abs(p.current-(p.points[0].v+(7.4-p.points[0].v)*p.partialAcid.fraction))>.001);
 const split=project([fill,sample,{...dose,id:'part1',amount:3},{...dose,id:'part2',amount:3,timestamp:'2026-10-19T17:54'}]);assert.ok(Math.abs(split.current-p.current)<1e-8);
-const missing=project([fill,{...sample,ta_ppm:undefined},dose]);assert.equal(missing.current,null);assert.match(missing.status,/Partial Taylor response.*above 7.40/);
+const missing=project([fill,{...sample,ta_ppm:undefined},dose]);assert.equal(missing.current,null);assert.match(missing.status,/Partial Taylor response.*no supported numeric curve/);
 const inconsistent=project([{...fill,starting_cya_ppm:0,starting_borates_ppm:0},sample,dose]);assert.equal(inconsistent.current,null);assert.match(inconsistent.status,/Partial Taylor response/);
 const numeric=project([fill,{...sample,ph:8,ph_bounds:undefined},dose]);assert.ok(Number.isFinite(numeric.current));assert.equal(numeric.partialAcid.scenario,false);
 // A finite reported range must contain the inferred starting scenario.
@@ -37,15 +37,15 @@ assert.equal(JSON.stringify(context.fixture),snapshot,'Original readings, Taylor
 // Personal acid response: known post-dose order without inventing a test time.
 const calDose={...dose,id:'synthetic-acid',created_at:'2026-10-19T17:44'},calRetest={id:'synthetic-retest',type:'chemistry',fill_cycle_id:'cycle',timestamp:'2026-10-19T17:44',created_at:'2026-10-19T18:02',ph:7.3};
 context.calEvents=[fill,sample,calDose,calRetest];const calSnapshot=JSON.stringify(context.calEvents);
-const cal=run("acidDoseCalibration(calEvents,'2026-10-19T19:00')");assert.equal(cal.factor,.8);assert.equal(cal.count,1);assert.equal(cal.provisional,true);assert.equal(cal.rows[0].confirmed_same_minute,true);
-assert.equal(run("acidDoseCalibration(calEvents,'2026-10-19T18:00').factor"),1,'No look-ahead to a result saved later');
-const plan=run("acidRecommendation(7,395,calEvents,'2026-10-19T19:00')");assert.equal(plan.reference,required);assert.ok(Math.abs(plan.grams-required*.8)<1e-9);
+const cal=run("legacyAcidDoseCalibration(calEvents,'2026-10-19T19:00')");assert.equal(cal.factor,.8);assert.equal(cal.count,1);assert.equal(cal.provisional,true);assert.equal(cal.rows[0].confirmed_same_minute,true);
+assert.equal(run("legacyAcidDoseCalibration(calEvents,'2026-10-19T18:00').factor"),1,'No look-ahead to a result saved later');
+const plan=run("acidRecommendation(7,395,calEvents,'2026-10-19T19:00')");assert.equal(plan.reference,required);assert.equal(plan.grams,required,'A same-minute historical pair is not a new calibration observation');
 assert.equal(project(context.calEvents).current,7.3,'Known post-dose test must not have the acid applied a second time');
 context.noOrder=[fill,sample,calDose,{...calRetest,id:'unconfirmed'}];assert.equal(run("acidDoseCalibration(noOrder,'2026-10-19T19:00').count"),0,'Do not infer post-dose order merely from save time');
 context.disturbed=[...context.calEvents,{id:'intervening-bleach',type:'chemical_addition',timestamp:'2026-10-19T17:43:30',product:'7.5% liquid bleach',amount:.5,unit:'cup'}];assert.equal(run("acidDoseCalibration(disturbed,'2026-10-19T19:00').count"),0);
 context.stale=[fill,{...sample,ta_ppm:undefined},{id:'old-ta',type:'chemistry',timestamp:'2026-10-19T15:00',ta_ppm:140,fill_cycle_id:'cycle'},calDose,calRetest];assert.equal(run("acidDoseCalibration(stale,'2026-10-19T19:00').count"),0);
 // New evidence is pooled automatically; no calibration button is necessary.
-context.more=[...context.calEvents,{...sample,id:'next-test',timestamp:'2026-10-19T18:10'},{...dose,id:'next-dose',timestamp:'2026-10-19T18:11'},{...calRetest,id:'next-retest',timestamp:'2026-10-19T18:31',created_at:'2026-10-19T18:32',ph:7.4}];assert.equal(run("acidDoseCalibration(more,'2026-10-19T19:00').count"),2);assert.equal(run("acidDoseCalibration(more,'2026-10-19T19:00').factor"),.85);
+context.more=[...context.calEvents,{...sample,id:'next-test',timestamp:'2026-10-19T18:10'},{...dose,id:'next-dose',timestamp:'2026-10-19T18:11'},{...calRetest,id:'next-retest',timestamp:'2026-10-19T18:31',created_at:'2026-10-19T18:32',ph:7.4}];assert.equal(run("legacyAcidDoseCalibration(more,'2026-10-19T19:00').count"),2);assert.equal(run("legacyAcidDoseCalibration(more,'2026-10-19T19:00').factor"),.85);assert.equal(run("acidDoseCalibration(more,'2026-10-19T19:00').count"),0);
 // Future calculator-confirmed doses freeze their correction for endpoint forecasts;
 // legacy doses keep their original reference and are not retroactively rewritten.
 const corrected=project([fill,sample,{...dose,amount:required*.8,unit:'grams',calculation:{...dose.calculation,acid_response_correction:cal}}]);assert.equal(corrected.current,7.4);assert.match(corrected.status,/Personally corrected Taylor/);
@@ -65,7 +65,7 @@ const conditionalWindow=run('phUncertainty({...windowProjection,workingBound:tru
 assert.equal(run('phUncertainty({...windowProjection,current:null},fixture).ready'),false);
 context.windowChecks=run("(()=>{const a={id:'window-fill',type:'water_change',full:true,timestamp:'2026-10-18T10:00',gallons:395,new_fill_cycle_id:'window-fill'},b={id:'window-before',type:'chemistry',timestamp:'2026-10-19T10:00',ph:7.5,ta_ppm:100,fill_cycle_id:'window-fill'},c={id:'window-after',type:'chemistry',timestamp:'2026-10-19T12:00',ph:7.6,fill_cycle_id:'window-fill'};c.forecast_review=automaticForecastReview(c,[a,b]);return [a,b,c]})()");
 const frozenReview=JSON.stringify(context.windowChecks[2].forecast_review);assert.equal(run("validForecastReviews(windowChecks,'ph').length"),1);context.editedChecks=context.windowChecks.map(e=>e.id==='window-before'?{...e,ph:7.4}:e);assert.equal(run("validForecastReviews(editedChecks,'ph').length"),0);assert.equal(run('phUncertainty(balanceProjection(editedChecks,"ph"),editedChecks).checks'),0);assert.equal(JSON.stringify(context.windowChecks[2].forecast_review),frozenReview);
-const evidenceText=run('phIntervalEvidence(windowChecks)');assert.match(evidenceText,/Spa Down dose learning/);assert.match(evidenceText,/Forecast uncertainty/);assert.doesNotMatch(evidenceText,/need 20|0\/20/);
+const evidenceText=run('phIntervalEvidence(windowChecks)');assert.match(evidenceText,/Acid dose learning/);assert.match(evidenceText,/Forecast uncertainty/);assert.doesNotMatch(evidenceText,/need 20|0\/20/);
 console.log('PASS: partial acid equilibrium/scenarios, Oct 19 7 drops + 18 tsp, 90% continuity, split doses, fallback, chart markers, calibration pairing and measurement reset');
 console.log('PASS: provisional personal dose correction, fresh TA, known same-minute ordering, no look-ahead, confounder exclusion, new evidence updates and frozen future corrections');
 console.log('PASS: provisional pH windows from zero checks, weighted related contexts, narrowing/widening, invalid/future review exclusion, conditional labels and separate learning status');

@@ -34,5 +34,24 @@ function server(h,initial=seed(),fail=()=>false){let remote=clone(initial),posts
  // Old pending queues without a trustworthy base are retained for explicit review.
  h=device();s=server(h);h.run('servicePatch={intervals:{filter_rinse:30},labels:{},bases:{intervals:{},labels:{}}}');assert.equal(await h.run('syncServiceSettings()'),false);assert.equal(s.posts(),0);assert.equal(h.run('hasServicePatch()'),true);
  assert.equal(h.storage.get('j365_spa_events_v2'),undefined);
+ // v6.72 reads the legacy queue and pending flag, but not the refill queue.
+ // Simulate its known-field sync writing a fresh config cache during rollback.
+ h=device();h.run('stageConfigField("refill_settings",{seats:3});config=applyPendingConfig(config);writeConfigState(config,configPending)');
+ const rollbackStorage=h.storage,legacyPending=()=>JSON.parse(rollbackStorage.get('j365_spa_config_v2'));
+ assert.equal(legacyPending().pending,false);assert.deepEqual(JSON.parse(rollbackStorage.get('j365_config_patch_v1')),{});
+ assert.equal(JSON.parse(rollbackStorage.get('j365_refill_settings_queue_v1')).patch.value.seats,3);
+ const rollbackConfig={...seed(),current_fill_cycle_id:'fill-from-older-build'};
+ rollbackStorage.set('j365_spa_config_v2',JSON.stringify({config:rollbackConfig,pending:false,baseline:rollbackConfig}));
+ h=harness(rollbackStorage);s=server(h,rollbackConfig);h.run('session={csrf:"synthetic"}');
+ assert.equal(h.run('refillSettings().seats'),3);assert.equal(h.run('configPending'),true);
+ assert.ok(await h.run('syncConfig()'));assert.equal(s.remote().refill_settings.seats,3);assert.equal(s.remote().current_fill_cycle_id,'fill-from-older-build');
+ assert.equal(JSON.parse(rollbackStorage.get('j365_refill_settings_queue_v1')).patch,undefined);
+ // Conflict is also private to the refill queue and survives reload.
+ h=device({...seed(),refill_settings:{seats:4}});s=server(h,{...seed(),refill_settings:{seats:2}});
+ h.run('stageConfigField("refill_settings",{seats:3})');assert.equal(await h.run('syncConfig()'),false);assert.equal(s.posts(),0);
+ assert.deepEqual(JSON.parse(h.storage.get('j365_config_conflicts_v1')),{});
+ assert.equal(JSON.parse(h.storage.get('j365_refill_settings_queue_v1')).conflict.remote.value.seats,2);
+ h=harness(h.storage);s=server(h,{...seed(),refill_settings:{seats:2}});h.run('session={csrf:"synthetic"}');
+ await h.run('resolveConfigConflict("general:refill_settings","local")');assert.equal(s.remote().refill_settings.seats,3);
  console.log('PASS: field-level two-device merges, persisted conflicts and both resolutions, product collisions, interruption, in-flight edits, legacy queues and bounded SHA retries');
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -63,7 +63,7 @@ const crossOrigin=new Request('https://spa.test/api/guest/entries',{method:'POST
 const oldMonth='2020-01',collisionId='collision-123456789';documents.set('events/2020/2020-01.json',{schema_version:2,year_month:oldMonth,events:[{id:collisionId,type:'note',timestamp:'2020-01-01T12:00',notes:'PRIVATE OWNER NOTE'}]});
 const collision=new Request('https://spa.test/api/guest/entries',{method:'POST',headers:{...headers,Origin:'https://spa.test','Content-Type':'application/json','X-CSRF-Token':'csrf'},body:JSON.stringify({event:{...input,id:collisionId}})});response=await worker.fetch(collision,env);assert.equal(response.status,409);documents.delete('events/2020/2020-01.json');
 policy={schema_version:1,grants:[{...grant,ends_at:new Date(now-1000).toISOString()}]};response=await worker.fetch(new Request('https://spa.test/api/me',{headers}),env);assert.equal(response.status,403);
-policy={schema_version:1,grants:[{...grant,starts_at:new Date(now+1000).toISOString()}]};response=await worker.fetch(new Request('https://spa.test/api/me',{headers}),env);assert.equal(response.status,403);
+policy={schema_version:1,grants:[{...grant,starts_at:new Date(now+hours).toISOString()}]};response=await worker.fetch(new Request('https://spa.test/api/me',{headers}),env);assert.equal(response.status,403);
 policy={schema_version:1,grants:[{...grant,revoked:true}]};response=await worker.fetch(new Request('https://spa.test/api/me',{headers}),env);assert.equal(response.status,403);response=await worker.fetch(post(),env);assert.equal(response.status,403);
 // Owner-created invitation: no guest GitHub login, token or repo membership.
 // Default unset flag permits only explicit owner-created invitations; false is

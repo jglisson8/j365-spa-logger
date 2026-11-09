@@ -11,23 +11,82 @@ function installSoakDurationPicker(input,max){
  if(input.id==='minutes'){const mode=()=>{const aeration=$('bathers').value==='0';input.hidden=!aeration;select.hidden=aeration;if(label)label.htmlFor=aeration?input.id:select.id;refreshSoakDurationPicker(input)};$('bathers').addEventListener('change',mode);mode()}
 }
 function setupSoakAeration(){
-  const oldLabel=label;label=function(e){return isExposure(e)&&e.exposure.kind==='jets'?'Jets / aeration — '+e.exposure.duration_minutes+' min · air controls '+(e.exposure.air_on?'open':'closed'):oldLabel(e);};
+  const oldLabel=label;label=function(e){if(aerationSessionStart(e))return 'Aeration started · air controls '+(e.aeration_session.air_on?'open':'closed');if(isExposure(e)&&e.exposure.kind==='jets')return 'Jets / aeration — '+Number(Number(e.exposure.duration_minutes).toFixed(2))+' min · air controls '+(e.exposure.air_on?'open':'closed')+(e.exposure.air_on?' · '+Number((aerationMetrics(e)?.seatMinutes??0).toFixed(1))+' seat-min':'');return oldLabel(e);};
   const form=$('soakForm'),bathers=$('bathers'),shower=$('showered'),jets=$('jetAirUse'),button=form.querySelector('button[type="submit"]');
   installSoakDurationPicker($('minutes'),120);
   const hint=document.createElement('p');hint.id='aerationHint';hint.className='help';hint.hidden=true;hint.textContent='Jets without bathers. Date/time is when aeration ended (defaults to now); the start is calculated from the duration. Saved as a jets-only exposure for pH trends, not a soak.';bathers.closest('.two').after(hint);
+  const controls=document.createElement('div');controls.id='aerationControls';controls.innerHTML='<p id="aerationActive" role="status"></p><button type="button" id="startAeration">Start aeration now</button><button type="button" id="stopAeration" hidden>Finish aeration now</button><details id="aerationOptions" class="optional"><summary>Aeration options</summary><label for="aerationSeatOverride">Aerating seats (optional)</label><input id="aerationSeatOverride" type="number" min="0.5" max="12" step="0.5"><label id="airOnOverrideLabel" for="airOnOverride">Actual air-on minutes (optional)</label><input id="airOnOverride" type="number" min="0" max="720" step="1"><div id="intendedAerationField"><label for="intendedAeration">Intended minutes (optional)</label><input id="intendedAeration" type="number" min="1" max="720" step="1"></div></details>';
+  hint.after(controls);
+  let clockTimer=null;
+  const active=()=>activeEvents().filter(aerationSessionStart).sort(timelineOrder).at(-1);
+  const update=()=>{
+    const session=active(),isAeration=bathers.value==='0',now=Date.now(),elapsed=session?Math.max(0,Math.floor((now-modelTime(session))/1000)):0;
+    $('startAeration').hidden=!isAeration||!!session;$('stopAeration').hidden=!session;$('aerationOptions').hidden=!isAeration&&!['air_on','mixed'].includes(jets.value);$('intendedAerationField').hidden=!isAeration;
+    $('airOnOverride').hidden=$('airOnOverrideLabel').hidden=jets.value!=='air_on';
+    const noAir=!['air_on','mixed'].includes(jets.value);$('aerationSeatOverride').hidden=$('aerationSeatOverride').previousElementSibling.hidden=noAir;
+    $('aerationActive').hidden=!session;
+    const status=session?'Aeration active · '+Math.floor(elapsed/60)+':'+String(elapsed%60).padStart(2,'0')+(session.aeration_session.intended_minutes?' / '+session.aeration_session.intended_minutes+' min planned':''):'';
+    if($('aerationActive').textContent!==status)$('aerationActive').textContent=status;
+    button.disabled=isAeration&&!!session;
+    if(session&&!clockTimer)clockTimer=setTimeout(()=>{clockTimer=null;update();},1000);
+    if(!session&&clockTimer){clearTimeout(clockTimer);clockTimer=null;}
+  };
+  const options=minutes=>{
+    const cap=refillSettings().seats,seat=num($('aerationSeatOverride').value),airField=$(jets.value==='mixed'?'airMinutes':'airOnOverride'),air=num(airField.value),open=['air_on','mixed'].includes(jets.value);
+    if(open&&seat!=null&&(!(seat>0&&seat<=cap)||!$('aerationSeatOverride').checkValidity()))throw Error('Choose an aerating seat count up to '+cap+'.');
+    if(open&&minutes!=null&&air!=null&&(!(air>=0&&air<=minutes)||!airField.checkValidity()))throw Error('Air-on minutes cannot exceed the actual duration.');
+    return {aeration_seat_capacity:cap,aerating_seats:open?(seat??(bathers.value==='0'?Math.min(cap,refillSettings().standalone_seats):Math.min(cap,Number(bathers.value)*(jets.value==='mixed'?.5:1)))):0,...(open&&minutes!=null&&air!=null?{air_on_minutes:air}:{})};
+  };
+  $('startAeration').onclick=()=>{
+    if(bathers.value!=='0'||active())return;
+    try{
+      const intended=num($('intendedAeration').value);if(intended!=null&&!$('intendedAeration').checkValidity())throw Error('Choose intended minutes between 1 and 720.');
+      const record=aerationStartRecord(Date.now(),{...options(null),air_on:jets.value==='air_on',...(intended==null?{}:{intended_minutes:intended})});
+      save([record],'Aeration started');update();
+    }catch(e){alert(e.message);}
+  };
+  $('stopAeration').onclick=()=>{
+    const start=active();if(!start)return;
+    const record=aerationFinishRecord(start,Date.now());
+    if(!record){alert('Choose an end after the start. For a very old session, correct the start or enter the completed session manually.');return;}
+    const actualAir=num($('airOnOverride').value);
+    if(record.exposure.air_on&&actualAir!=null){if(actualAir<0||actualAir>record.exposure.duration_minutes){alert('Actual air-on minutes cannot exceed elapsed time.');return;}record.exposure.air_on_minutes=actualAir;}
+    save([record],'Aeration saved');$('intendedAeration').value='';$('aerationSeatOverride').value='';$('airOnOverride').value='';update();
+  };
+  const beforeRender=render;render=function(...args){beforeRender(...args);update();};
+  window.addEventListener('storage',e=>{if(e.key===KEY)update();});
+
   let zero=false,previousShower=shower.checked,previousJets=jets.value;
   const mode=()=>{const next=bathers.value==='0';if(next&&!zero){previousShower=shower.checked;previousJets=jets.value;}shower.disabled=next;shower.closest('.inline').style.opacity=next?'.45':'';if(next)shower.checked=false;else if(zero){shower.checked=previousShower;jets.value=previousJets;}
     for(const option of jets.options)option.disabled=next&&!['air_on','water_only'].includes(option.value);
-    if(next&&!['air_on','water_only'].includes(jets.value))jets.value='air_on';const time=form.querySelector('.time');time.previousElementSibling.textContent=next?'Aeration ended at':'Time';if(next&&!zero){const details=time.closest('details');if(details)details.open=true;}hint.hidden=!next;button.textContent=next?'Save aeration':'Save soak';zero=next;conditionUI();};
+    if(next&&!['air_on','water_only'].includes(jets.value))jets.value='air_on';const time=form.querySelector('.time');time.previousElementSibling.textContent=next?'Aeration ended at':'Time';if(next&&!zero){const details=time.closest('details');if(details)details.open=true;}hint.hidden=!next;button.textContent=next?'Save completed aeration':'Save soak';zero=next;conditionUI();update();};
   bathers.addEventListener('change',mode);mode();
-  const submit=form.onsubmit;form.onsubmit=function(e){if(bathers.value!=='0')return submit.call(this,e);e.preventDefault();const duration=num($('minutes').value),ended=timestamp(this),end=entryTime(ended),start=end-duration*60000;
+  jets.addEventListener('change',update);
+  let soakOptions=null;const beforeSave=save;
+  /* Capture seat defaults at save so later settings do not reinterpret new records. */
+  const submit=form.onsubmit;form.onsubmit=function(e){
+    const duration=num($('minutes').value);try{soakOptions=options(duration)}catch(err){e.preventDefault();alert(err.message);return;}
+    if(bathers.value!=='0'){try{return submit.call(this,e);}finally{soakOptions=null;$('aerationSeatOverride').value='';$('airOnOverride').value='';$('airMinutes').value='';}}
+    e.preventDefault();if(active())return;const ended=timestamp(this),end=entryTime(ended),start=end-duration*60000;
     if(!Number.isInteger(duration)||duration<1||duration>720||!['air_on','water_only'].includes(jets.value)||!Number.isFinite(start)||end>Date.now()+60000){alert('Enter a completed aeration session: end time, 1–720 minutes, and air controls open or closed.');return;}
-    const ts=SpaTime.input(start);spaEntryChoices.set(ts,start);save([{...base('maintenance',ts),activity:'custom',custom_activity:'Standalone jets',temperature_f:Number($('temperature').value),exposure:{kind:'jets',duration_minutes:duration,ended_at:ended,sunlight:false,air_on:jets.value==='air_on'},notes:text($('soakNotes').value)}],'Aeration saved');$('soakNotes').value='';fillNow();
+    const ts=SpaTime.input(start);spaEntryChoices.set(ts,start);save([{...base('maintenance',ts),activity:'custom',custom_activity:'Standalone jets',temperature_f:Number($('temperature').value),exposure:{kind:'jets',duration_minutes:duration,ended_at:ended,sunlight:false,air_on:jets.value==='air_on',...soakOptions},notes:text($('soakNotes').value)}],'Aeration saved');soakOptions=null;$('soakNotes').value='';$('aerationSeatOverride').value='';$('airOnOverride').value='';fillNow();
+  };
+  save=function(events,message,autoSync=true){
+    if(message==='Soak saved'&&soakOptions)for(const e of events){Object.assign(e,soakOptions);const m=aerationMetrics({...e,jet_air_use:jets.value});if(m&&['air_on','mixed'].includes(m.mode))e.air_on_minutes=m.airMinutes;}
+    if(message==='Exposure saved')for(const e of events.filter(e=>isExposure(e)&&e.exposure.kind==='jets')){
+      const settings=refillSettings();e.exposure.aeration_seat_capacity??=settings.seats;e.exposure.aerating_seats??=e.exposure.air_on?Math.min(settings.seats,settings.standalone_seats):0;
+    }
+    return beforeSave(events,message,autoSync);
   };
   // Existing exposure records keep the same wire format; expose their nested
   // duration/air fields to the normal reversible correction flow.
-  $('history').addEventListener('click',e=>{if(!e.target.closest('[data-edit]')||!isExposure(editingRecord)||editingRecord.exposure.kind!=='jets')return;$('editFields').insertAdjacentHTML('beforeend','<label for="editAerationMinutes">Aeration minutes</label><input id="editAerationMinutes" type="number" min="1" max="10080" step="1" required value="'+editingRecord.exposure.duration_minutes+'"><label class="inline"><input id="editAerationAir" type="checkbox"'+(editingRecord.exposure.air_on?' checked':'')+'>Air controls open</label>');});
-  const correct=$('editRecordForm').onsubmit;$('editRecordForm').onsubmit=function(e){if(!isExposure(editingRecord)||editingRecord.exposure.kind!=='jets'||!$('editAerationMinutes'))return correct.call(this,e);const duration=num($('editAerationMinutes').value),ts=$('edit-timestamp').value,start=parseSpaTime(ts);if(!Number.isInteger(duration)||duration<1||duration>10080||!Number.isFinite(start)||start+duration*60000>Date.now()+60000){e.preventDefault();alert('Enter a completed aeration session and a valid duration.');return;}const original=editingRecord;editingRecord={...original,exposure:{...original.exposure,duration_minutes:duration,air_on:$('editAerationAir').checked,ended_at:SpaTime.input(start+duration*60000)}};try{return correct.call(this,e);}finally{editingRecord=original;}};
+  $('history').addEventListener('click',e=>{if(!e.target.closest('[data-edit]'))return;if(aerationSessionStart(editingRecord)){$('edit-timestamp').step='1';return;}if(!isExposure(editingRecord)||editingRecord.exposure.kind!=='jets')return;$('edit-timestamp').step='1';$('editFields').insertAdjacentHTML('beforeend','<label for="editAerationMinutes">Aeration minutes</label><input id="editAerationMinutes" type="number" min="0.016" max="10080" step="any" required value="'+editingRecord.exposure.duration_minutes+'"><label class="inline"><input id="editAerationAir" type="checkbox"'+(editingRecord.exposure.air_on?' checked':'')+'>Air controls open</label><label for="editAerationSeatCount">Aerating seats (blank uses default)</label><input id="editAerationSeatCount" type="number" min="0.5" max="12" step="0.5" value="'+(editingRecord.exposure.aerating_seats||'')+'"><label for="editAerationAirMinutes">Actual air-on minutes (blank uses duration)</label><input id="editAerationAirMinutes" type="number" min="0" step="any" value="'+(editingRecord.exposure.air_on_minutes??'')+'">');});
+  const correct=$('editRecordForm').onsubmit;$('editRecordForm').onsubmit=function(e){if(!isExposure(editingRecord)||editingRecord.exposure.kind!=='jets'||!$('editAerationMinutes'))return correct.call(this,e);const duration=num($('editAerationMinutes').value),ts=$('edit-timestamp').value,start=ts===editingRecord.timestamp?modelTime(editingRecord):entryTime(ts);if(!(duration>0)||duration>10080||!Number.isFinite(start)||start+duration*60000>Date.now()+60000){e.preventDefault();alert('Enter a completed aeration session and a valid duration.');return;}const original=editingRecord,open=$('editAerationAir').checked,seat=num($('editAerationSeatCount').value),air=num($('editAerationAirMinutes').value),capacity=original.exposure.aeration_seat_capacity??refillSettings().seats,finish=aerationClockFields(start+duration*60000);
+    if(open&&(seat!=null&&(!(seat>0&&seat<=capacity)||!$('editAerationSeatCount').checkValidity())||air!=null&&!(air>=0&&air<=duration))){e.preventDefault();alert('Check the aerating seat count and actual air-on minutes.');return;}
+    const exposure={...original.exposure,duration_minutes:duration,air_on:open,ended_at:finish.timestamp,ended_at_instant:finish.timestamp_instant};
+    delete exposure.air_on_minutes;delete exposure.aerating_seats;
+    if(open&&seat!=null)exposure.aerating_seats=seat;if(open&&air!=null)exposure.air_on_minutes=air;
+    editingRecord={...original,exposure};try{return correct.call(this,e);}finally{editingRecord=original;}};
 }
 function appHasUnsavedWork(){
   if(!appWorkflowState)return false;
@@ -96,7 +155,7 @@ function setupAppWorkflow(){
   const notice=document.createElement('div');notice.id='appSaveNotice';notice.setAttribute('role','status');notice.hidden=true;notice.innerHTML='<span></span> <button type="button" class="secondary" id="undoLastSave">Undo</button>';document.body.append(notice);
   const clearUndo=()=>{undoBatch=null;notice.hidden=true;clearTimeout(undoTimer);};
   save=function(events,message,autoSync=true){
-    const before=new Set(read().map(e=>e.id)),form=message==='Chemistry saved'?$('chemistryForm'):['Soak saved','Aeration saved'].includes(message)?$('soakForm'):['Maintenance saved','Exposure saved','New fill cycle saved'].includes(message)?$('maintenanceForm'):null;
+    const before=new Set(read().map(e=>e.id)),form=message==='Chemistry saved'?$('chemistryForm'):['Soak saved','Aeration saved','Aeration started'].includes(message)?$('soakForm'):['Maintenance saved','Exposure saved','New fill cycle saved'].includes(message)?$('maintenanceForm'):null;
     const activity=$('maintenanceActivity').value;
     const result=originalSave(events,message,autoSync),saved=read(),fresh=events.filter(e=>!before.has(e.id)&&saved.some(r=>r.id===e.id));
     if(form&&fresh.length){
@@ -104,7 +163,7 @@ function setupAppWorkflow(){
       if(form.id==='maintenanceForm'&&safeActivity(activity)){prefs.service=activity;persist();}
       queueMicrotask(()=>{resetBaseline(form);review();});
       clearUndo();
-      if(!fresh.some(e=>e.type==='water_change'&&e.full)){
+      if(!fresh.some(e=>e.type==='water_change'&&e.full||e.aeration_session_id)){
         undoBatch={ids:fresh.map(e=>e.id),until:Date.now()+15000};notice.querySelector('span').textContent='Saved on this device · '+fresh.length+' entr'+(fresh.length===1?'y':'ies');notice.hidden=false;$('toast').textContent='';undoTimer=setTimeout(clearUndo,15000);
       }
     }

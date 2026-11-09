@@ -4,6 +4,9 @@ Static, local-first logger with authenticated private GitHub synchronization thr
 
 ## Development and tests
 
+See [v6.73.0 refill, forecasts and aeration](docs/refill-forecasts-aeration-6.73.0.md)
+for the startup guide, additive event fields, model assumptions and regression cases.
+
 See [v6.67.1 mobile keyboard notes](docs/mobile-input-6.67.1.md) for viewport-aware
 entry controls and mobile keyboard testing limitations.
 
