@@ -4,6 +4,9 @@ Static, local-first logger with authenticated private GitHub synchronization thr
 
 ## Development and tests
 
+See [v6.74.0 historical-rate forecasts](docs/forecast-priors-6.74.0.md)
+for post-refill forecast assumptions and regression coverage.
+
 See [v6.73.0 refill, forecasts and aeration](docs/refill-forecasts-aeration-6.73.0.md)
 for the startup guide, additive event fields, model assumptions and regression cases.
 
