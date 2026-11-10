@@ -22,7 +22,7 @@ for(const key of ['fc_ppm','ph']){
  const html=element('trendCharts').innerHTML;assert.match(html,/data-forecast-prior-band/);assert.match(html,/class="chart-summary">≈/);assert.match(html,/Forecast range/);assert.doesNotMatch(html,/Provisional ≈|Historical-rate scenario/);
  const diag=run('(()=>{const p=key==="ph"?balanceProjection(rows,key,now):fcProjection(rows,now),fact=actionContext(rows,now).facts[key];return {range:historicalForecastBand(p,now),value:p.current,held:fact.kind,display:fact.display_estimate,tap:inspectChartValue({projection:p,key,plotted:[{e:rows.find(e=>e.id==="fresh-test"),v:p.points[0].v}],start:p.points[0].t,end:now+3600000},now).text}})()');
  assert.ok(diag.range[0]<diag.value&&diag.range[1]>diag.value);assert.equal(diag.held,'unknown');
- assert.equal(diag.display,undefined,'the post-aeration retest hold remains in effect');assert.match(diag.tap,/≈.*range/);
+ assert.equal(diag.display,diag.value,'the post-aeration hold keeps the estimate visible without using it for guidance');assert.match(diag.tap,/≈.*range/);
  assert.ok(Number.isFinite(run('actionContext(rows.filter(e=>e.id!=="new-jets"),now).facts[key].display_estimate')));
 }
 assert.equal(JSON.stringify(c.rows),before);
@@ -59,6 +59,12 @@ for(const key of ['fc_ppm','ph','ta_ppm']){
  if(key!=='ta_ppm')assert.match(run('(()=>{const p=key==="fc_ppm"?fcProjection(aging,later):balanceProjection(aging,key,later),sample=aging.find(e=>e.id==="fresh-test"),meta={key,projection:p,plotted:[{e:sample,v:sample[key]}],start:p.points[0].t,end:later+3600000},node={};chartUiReadout(node,inspectChartValue(meta,later),meta);return node.innerHTML})()'),/≈[^<]*–[^<]*Extended forecast.*Lower confidence/);
 }
 assert.match(run('balanceProjection(rows,"ph",later).status'),/supported range limit/);
+const capped=run('balanceProjection(rows,"ph",later)');assert.equal(capped.current,null);assert.equal(capped.ph_model_limit.value,9);assert.equal(capped.ph_model_limit.last_measured,7.5);
+assert.equal(run('actionContext(rows,later).facts.ph.kind'),'unknown');assert.equal(run('actionContext(rows,later).facts.ph.ph_model_limit.value'),9);
+assert.match(run('chartOverview(balanceProjection(rows,"ph",later),"ph",[],later)'),/≈9\+ · model limit · Last measured: 7.5/);
+assert.equal(run('chartProjectionValue(balanceProjection(rows,"ph",later),later)'),null,'The model limit is display-only, not a numeric forecast');
+assert.match(run('(()=>{const p=balanceProjection(rows,"ph",later),meta={key:"ph",projection:p,plotted:[],start:p.t,end:later+3600000},node={};chartUiReadout(node,inspectChartValue(meta,later),meta);return node.innerHTML})()'),/≈9\+ · model limit.*Last measured: 7.5/);
+assert.match(run('buildActionPlan(actionContext(rows,now)).cards.find(c=>c.id==="fc-unknown").steps[0]'),/No retest after aeration.*Test FC before adjusting/);
 c.lateDose={id:'late-bleach',type:'chemical_addition',fill_cycle_id:fresh.id,timestamp:new Date(c.later-3600000).toISOString(),product:'7.5% liquid bleach',strength_percent:7.5,amount:1,unit:'fl oz'};
 const afterDose=run('fcProjection([...rows,lateDose],later)');
 assert.equal(afterDose.points.at(-1).event_id,'late-bleach');assert.ok(Number.isFinite(afterDose.current));
@@ -66,6 +72,7 @@ assert.equal(run('forecastMeasurementAge(fcProjection([...rows,lateDose],later),
 c.unknown={...c.lateDose,product:'Unknown treatment',strength_percent:undefined};
 assert.equal(run('fcProjection([...rows,unknown],later).current'),null);
 assert.equal(run('balanceProjection([...rows,unknown],"ph",later).current'),null);
+assert.equal(run('balanceProjection([...aging,unknown],"ph",later).ph_model_limit'),undefined,'Do not show 9+ for an unsupported addition');
 c.otherBand=[...c.rows,...freshFc.slice(0,2),test('changedCya',fresh.id,'2026-11-09T11:00',{cya_ppm:20}),test('nextFc',fresh.id,'2026-11-09T14:00',{fc_ppm:4})];
 const fallback=run('fcProjection(otherBand,now)');assert.ok(Number.isFinite(fallback.current));assert.equal(fallback.model.rate_basis.current_band,20);
 assert.equal(run('buildDecayModel(otherBand.map(e=>e.id==="f2"?{...e,cover_condition:"left_open"}:e),false).eligibleIntervals.some(r=>r.b.id==="f2")'),false);

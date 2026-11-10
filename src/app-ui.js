@@ -54,6 +54,10 @@ function chartUiTimeAxis(start,end,g) {
 }
 function chartUiReadout(node,result,meta) {
   if(!node)return;
+  if(result.model_limit){
+    const limit=result.model_limit;
+    node.innerHTML='<strong>'+esc('≈'+limit.value+'+ · model limit')+'</strong><span>'+esc('Last measured: '+limit.last_measured.toFixed(1))+'</span>';node.title=result.text;return;
+  }
   const bounded=meta.key==='ph'&&/8\+:|reported range/.test(result.text),approx=result.text.includes('≈'),kind=result.strip?'Strip':result.extended?'Extended forecast · lower confidence':/conditional|scenario/i.test(result.text)?'Conditional scenario':/Post-dose measured/.test(result.text)?'Post-dose measured':/Post-dose/.test(result.text)?'Post-dose':/Calculated between/.test(result.text)?'Calculated between points':approx?'Forecast':/Nearest/.test(result.text)?'Nearest sample':Number.isFinite(result.value)?'Sample':'Forecast';
   const value=result.working_range?'≈'+[...new Set(result.working_range.map(v=>v.toFixed(result.range_digits??(meta.key==='ph'?2:meta.key==='fc_ppm'?1:0))))].join('–')+(meta.key==='ph'?'':' ppm'):result.strip?result.text.split(' · ')[1].replace('Strip ',''):bounded?(result.text.includes('8+:')?'8+':'Bounded sample'):Number.isFinite(result.value)?(approx?'≈':'')+result.value.toFixed(meta.key==='ph'||meta.key==='fc_ppm'?1:0)+(meta.key==='ph'?'':' ppm'):'Forecast paused';
   node.innerHTML='<strong>'+esc(value+' · '+(result.extended?'Extended forecast':kind))+'</strong><span>'+esc((result.extended?'Lower confidence · ':'')+result.text.split(' · ')[0])+'</span>';node.title=result.text;
