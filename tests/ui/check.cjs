@@ -275,7 +275,8 @@ const bandFixture=[];for(const [day,fill,cya,k] of [['01','low',0,.1],['07','hig
 assert.ok(Math.abs(w.eval("buildDecayModel(bandFixture,false,'2026-10-02T00:00').k")-.1)<1e-12);assert.ok(Math.abs(w.eval("buildDecayModel(bandFixture,false,'2026-10-08T00:00').k")-.03)<1e-12);
 assert.equal(w.eval("buildDecayModel(bandFixture,false,'2026-10-08T00:00').bands.length"),2);
 bandFixture.push({id:'band-jump',type:'chemical_addition',timestamp:'2026-10-01T15:00',product:'Dichlor',amount:20,unit:'tsp',fill_cycle_id:'low'});
-const segmentProjection=w.eval("fcProjection(bandFixture,Date.parse('2026-10-01T16:00'))");assert.equal(segmentProjection.current,null);assert.equal(segmentProjection.kind,'insufficient_decay');assert.ok(segmentProjection.theoretical_doses[0].v>0,'Keep the dose anchor, not a decay rate borrowed from a future fill');
+const segmentProjection=w.eval("fcProjection(bandFixture,Date.parse('2026-10-01T16:00'))");assert.ok(Number.isFinite(segmentProjection.current));assert.ok(segmentProjection.points.at(-1).v>0,'Keep the dose anchor');assert.ok(Math.abs(segmentProjection.model.k-.1)<1e-12,'Fallback can reuse earlier intervals in this fill, but never a rate from a future fill');
+assert.equal(segmentProjection.current,w.eval("fcProjection(bandFixture.filter(e=>e.timestamp.startsWith('2026-10-01')),Date.parse('2026-10-01T16:00')).current"));
 assert.equal(w.eval("isDichlor({product:'AquaDoc filter cleaner'})"),false);
 const historicalClean=bandFixture.filter(e=>e.id!=='band-jump').map(e=>e.type==='chemistry'?{...e,historical:{status:'reconstructed',exclude_from_training:true}}:e);w.historicalClean=historicalClean;
 assert.equal(w.eval("buildDecayModel(historicalClean,true,'2026-10-08T00:00').evidence_tier"),'historical_fallback');assert.equal(w.eval("buildDecayModel(historicalClean,false,'2026-10-08T00:00').intervals.length"),0);

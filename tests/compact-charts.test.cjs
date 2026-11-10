@@ -23,5 +23,5 @@ assert.match(overview({current:null,status:'Need readings'},'ph',[{v:8,bounded:t
 assert.match(context.chartModelDetails(null,'ch_ppm',1),/no calcium-hardness forecast/);
 // Main and expanded charts share this renderer; descriptions belong after the graph/key.
 const render=html.slice(html.indexOf('function renderCharts('),html.indexOf("$('trendWindow').addEventListener"));
-assert.match(render,/chartOverview\(projection,key,plotted\)/);assert.match(render,/chartKey\(key,projection\)\+chartModelDetails\(projection,key,points.length\)/);assert.doesNotMatch(render,/esc\(forecastSummary/);
+assert.match(render,/chartOverview\(projection,key,plotted,asOf\)/);assert.match(render,/chartKey\(key,projection\)\+chartModelDetails\(projection,key,points.length\)/);assert.doesNotMatch(render,/esc\(forecastSummary/);
 console.log('PASS: compact summaries for FC/pH/TA/CH, target crossings, collapsed details, visible pause/bound/extrapolation warnings and shared expanded-chart layout');

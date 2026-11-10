@@ -6,7 +6,8 @@ for(const [key,value]of [['fc_ppm',2.4],['ph',7.5],['ta_ppm',110]]){
  const overview=run('chartOverview(p,key,[],now)');assert.match(overview,/class="chart-summary">≈/);assert.doesNotMatch(overview,/Estimate ≈|Estimated/);
 }
 assert.match(run("chartOverview(null,'ph',[{v:7.4}],now)"),/Latest sample: 7.4/);assert.doesNotMatch(run("chartOverview(null,'ph',[{v:7.4}],now)"),/≈/);
-assert.match(run("chartOverview({...p,current:7.5,workingBound:true},'ph',[],now)"),/Scenario ≈/);
+const conditional=run("chartOverview({...p,current:7.5,workingBound:true},'ph',[],now)");
+assert.match(conditional,/class="chart-summary">≈7.50/);assert.match(conditional,/Conditional scenario from a bounded reading/);
 assert.match(run("chartOverview({...p,current:null,blocked:true,status:'Need new sample'},'ph',[],now)"),/Estimate paused/);
 const key=run("chartKey('ph',null)");assert.equal((key.match(/Forecast ≈/g)||[]).length,1);assert.doesNotMatch(key,/Model ≈|Extrapolation/);assert.match(key,/Post-dose ≈/);assert.match(key,/Post-dose measured/);assert.match(key,/not sampled/);
 c.sample={id:'synthetic-sample',type:'chemistry',timestamp:'2026-10-02T10:00',ph:7.4};

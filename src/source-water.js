@@ -6,26 +6,27 @@ function sourceWaterBaselines(events,key,at=Date.now()){
  for(const e of [...events].sort(timelineOrder))if(e.type==='water_change'&&e.full&&chartTime(e)<=cutoff&&!fills.has(e.new_fill_cycle_id))fills.set(e.new_fill_cycle_id,e);
  const rows=[];
  for(const [fillId,fill]of fills){
-  const explicit=fill.source_chemistry?.[key];if(Number.isFinite(explicit)){rows.push({fill_id:fillId,event_id:fill.id,timestamp:fill.timestamp,value:explicit,explicit:true});continue;}
+  const explicit=fill.source_chemistry?.[key];if(Number.isFinite(explicit)){rows.push({fill_id:fillId,event_id:fill.id,timestamp:fill.timestamp,value:explicit,explicit:true,water_source:fill.water_source});continue;}
   const start=SpaTime.calendar(fill.timestamp.slice(0,10)),samples=events.filter(e=>e.type==='chemistry'&&Number.isFinite(e[key])&&!isStripParameter(e,key)&&effectiveModelFill(e,events)===fillId&&chartTime(e)<=cutoff&&timelineOrder(e,fill)>=0&&(e.measurement_context==='initial_fill_before_balancing'||SpaTime.calendar(e.timestamp.slice(0,10))-start<=3*86400000)).sort(timelineOrder);
   const first=samples[0];if(!first)continue;
   const affects=e=>key==='ta_ppm'?/acid|spa down|bisulfate|carbonate|baking soda/i.test(chemicalName(e)):key==='ch_ppm'?/calcium/i.test(chemicalName(e)):true;
   if(events.some(e=>e.type==='chemical_addition'&&effectiveModelFill(e,events)===fillId&&timelineOrder(e,fill)>=0&&timelineOrder(e,first)<0&&affects(e)))continue;
-  rows.push({fill_id:fillId,event_id:first.id,timestamp:first.timestamp,value:first[key],historical:!!first.historical,explicit:false});
+  rows.push({fill_id:fillId,event_id:first.id,timestamp:first.timestamp,value:first[key],historical:!!first.historical,explicit:false,water_source:fill.water_source});
  }
  return rows.sort((a,b)=>compareSpa(a.timestamp,b.timestamp));
 }
-function sourceWaterEstimate(events,key,at=Date.now()){
- const all=sourceWaterBaselines(events,key,at);if(!all.length)return null;
+function sourceWaterEstimate(events,key,at=Date.now(),source=null){
+ const all=sourceWaterBaselines(events,key,at).filter(row=>!source||source==='unknown'||row.water_source===source);if(!all.length)return null;
  const mode=config?.source_water?.mode==='average'?'average':'latest',rows=mode==='average'?all:[all.at(-1)];
- return {value:rows.reduce((s,r)=>s+r.value,0)/rows.length,approximate:true,basis:mode==='average'?'historical fill average':'latest fill baseline',mode,count:rows.length,event_id:rows.length===1?rows[0].event_id:undefined,event_ids:rows.map(r=>r.event_id),fill_ids:rows.map(r=>r.fill_id),timestamp:rows.at(-1).timestamp};
+ const values=all.map(r=>r.value),range=values.length>1?[Math.min(...values),Math.max(...values)]:null;
+ return {value:rows.reduce((s,r)=>s+r.value,0)/rows.length,range,approximate:true,basis:mode==='average'?'historical fill average':'latest fill baseline',mode,count:rows.length,event_id:rows.length===1?rows[0].event_id:undefined,event_ids:rows.map(r=>r.event_id),fill_ids:rows.map(r=>r.fill_id),timestamp:rows.at(-1).timestamp};
 }
 // Keep explicit per-top-off values and untreated FC behavior unchanged.
 const sourceWaterOriginalTopOff=topOffSource;
 topOffSource=function(event,events,key){
- if(Number.isFinite(event.source_chemistry?.[key])||key!=='ta_ppm')return sourceWaterOriginalTopOff(event,events,key);
+ if(Number.isFinite(event.source_chemistry?.[key])||!['ta_ppm','ph'].includes(key))return sourceWaterOriginalTopOff(event,events,key);
  if(!events.some(e=>e.type==='water_change'&&e.full&&e.new_fill_cycle_id===effectiveModelFill(event,events)&&compareSpa(e,event)<=0))return null;
- return sourceWaterEstimate(events,key,chartTime(event));
+ return sourceWaterEstimate(events,key,chartTime(event),event.water_source);
 };
 topOffSourceNote=function(event,events){const s=topOffSource(event,events,'ta_ppm');return s?.approximate?'Top-off source TA ≈'+Number(s.value.toFixed(1))+' ppm · '+s.basis+' ('+s.count+' fill'+(s.count===1?'':'s')+'); source water was not retested':s?.basis==='initial-fill source measurement'?'Top-off uses recorded initial-fill source TA '+s.value+' ppm':null;};
 function setupSourceWater(){
