@@ -2,6 +2,18 @@
 
 Local implementation; no deployment or production data migration.
 
+Follow-up verification on the v6.75.1 codebase: a nonnumeric post-dose pH
+observation is not used as the endpoint, but it does not prevent evaluation
+of a later numeric retest consistent with that bound. The same mixing, time, and interference checks
+still apply. Inferred source-water pH excludes samples after aeration or a
+soak, and inferred source-water baselines do not use readings after logged
+water additions/replacement. Source-water TA also excludes post-dose readings;
+an explicit source-water measurement remains authoritative.
+Refill Startup now starts and finishes the same persisted aeration session
+as the Soak tab without switching tabs. Legacy Mixed records with explicit
+air-on minutes but no seat metadata use that time fraction once. New Mixed
+entries store the seat count and air-on duration separately.
+
 ## Workflow
 
 - **Service → full water change** retains the purge, source/volume and optional

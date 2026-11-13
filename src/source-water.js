@@ -9,8 +9,13 @@ function sourceWaterBaselines(events,key,at=Date.now()){
   const explicit=fill.source_chemistry?.[key];if(Number.isFinite(explicit)){rows.push({fill_id:fillId,event_id:fill.id,timestamp:fill.timestamp,value:explicit,explicit:true,water_source:fill.water_source});continue;}
   const start=SpaTime.calendar(fill.timestamp.slice(0,10)),samples=events.filter(e=>e.type==='chemistry'&&Number.isFinite(e[key])&&!isStripParameter(e,key)&&effectiveModelFill(e,events)===fillId&&chartTime(e)<=cutoff&&timelineOrder(e,fill)>=0&&(e.measurement_context==='initial_fill_before_balancing'||SpaTime.calendar(e.timestamp.slice(0,10))-start<=3*86400000)).sort(timelineOrder);
   const first=samples[0];if(!first)continue;
-  const affects=e=>key==='ta_ppm'?/acid|spa down|bisulfate|carbonate|baking soda/i.test(chemicalName(e)):key==='ch_ppm'?/calcium/i.test(chemicalName(e)):true;
-  if(events.some(e=>e.type==='chemical_addition'&&effectiveModelFill(e,events)===fillId&&timelineOrder(e,fill)>=0&&timelineOrder(e,first)<0&&affects(e)))continue;
+  const disturbed=events.some(e=>{
+   if(effectiveModelFill(e,events)!==fillId||timelineOrder(e,fill)<0||timelineOrder(e,first)>=0)return false;
+   if(e.type==='water_top_off'||e.type==='water_change'&&!e.full)return true;
+   if(e.type==='chemical_addition')return key!=='ch_ppm'||/calcium/i.test(chemicalName(e));
+   return key==='ph'&&(e.type==='soak'||isExposure(e)||aerationSessionStart(e));
+  });
+  if(disturbed)continue;
   rows.push({fill_id:fillId,event_id:first.id,timestamp:first.timestamp,value:first[key],historical:!!first.historical,explicit:false,water_source:fill.water_source});
  }
  return rows.sort((a,b)=>compareSpa(a.timestamp,b.timestamp));

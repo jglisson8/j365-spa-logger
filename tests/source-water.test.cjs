@@ -17,4 +17,14 @@ $('sourceWaterMode').value='average';$('sourceWaterMode').dispatchEvent(new w.Ev
 assert.equal(JSON.stringify(w.rows.slice(0,-1)),before,'Original samples and additions unchanged');
 // First-test/new-fill ordering supports same-minute test-before-dose.
 w.same=[fill('same','2026-10-22'),test('baseline','same','2026-10-22T12:00',{ta_ppm:155}),{id:'same-dose',type:'chemical_addition',timestamp:'2026-10-22T12:00',fill_cycle_id:'same',product:'Baking soda',amount:1,unit:'tsp'}];assert.equal(run("sourceWaterBaselines(same,'ta_ppm',at)[0].value"),155);
+for(const [disturbance,parameters] of [
+ [{type:'chemical_addition',product:'Dichlor',amount:1,unit:'tbsp'},['ta_ppm','ph']],
+ [{type:'water_top_off',gallons:5},['ta_ppm','ph','ch_ppm']],
+ [{type:'water_change',full:false,gallons:50},['ta_ppm','ph','ch_ppm']],
+ [{type:'maintenance',activity:'custom',exposure:{kind:'jets',duration_minutes:20,air_on:true}},['ph']],
+ [{type:'soak',duration_minutes:20,bathers:1},['ph']]
+]){
+ w.affected=[fill('same','2026-10-22'),{id:'disturbance',timestamp:'2026-10-22T12:05',fill_cycle_id:'same',...disturbance},test('after','same','2026-10-22T13:00',{ta_ppm:155,ph:7.5,ch_ppm:180})];
+ for(const key of parameters)assert.equal(run(`sourceWaterBaselines(affected,${JSON.stringify(key)},at).length`),0,disturbance.type+' should not become source water for '+key);
+}
 dom.window.close();console.log('PASS: automatic next-fill baselines, latest/average one-per-fill, partial parameters, treatment/future exclusion, override priority, offline setting queue and unchanged evidence');

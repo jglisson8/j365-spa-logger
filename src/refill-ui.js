@@ -54,6 +54,26 @@ function setupRefillStartup(){
  $('fillPh').addEventListener('input',()=>{if($('fillPh').value)$('fillPhBound').checked=false;});
  const panel=document.createElement('details');panel.className='panel';panel.id='refillStartup';panel.innerHTML='<summary id="refillProgress">Refill startup</summary><div id="refillTasks"></div>';
  $('maintenanceForm').before(panel);
+ const aeration=document.createElement('details');
+ aeration.id='refillAeration';aeration.hidden=!sharedAerationControls;
+ aeration.innerHTML='<summary>Aeration controls</summary><p id="refillAerationStatus" role="status"></p><div id="refillAerationStartFields"><label for="refillAirControls">Air controls</label><select id="refillAirControls"><option value="open">Open</option><option value="closed">Closed (water jets only)</option></select><label for="refillAerationMinutes">Planned minutes (optional)</label><input id="refillAerationMinutes" type="number" min="1" max="720" step="1"><button type="button" id="refillStartAeration">Start aeration now</button></div><button type="button" id="refillStopAeration" hidden>Finish aeration now</button>';
+ panel.append(aeration);
+ attachRefillAeration=()=>{
+  if(!sharedAerationControls)return;
+  aeration.hidden=false;
+  sharedAerationControls.observe((session,status)=>{
+   if(session)aeration.open=true;
+   $('refillAerationStartFields').hidden=!!session;$('refillStopAeration').hidden=!session;
+   const label=$('refillAerationStatus');if(label.textContent!==status)label.textContent=status;
+  });
+  $('refillStartAeration').onclick=()=>{
+   const input=$('refillAerationMinutes');if(!input.reportValidity())return;
+   const {seats,standalone_seats}=refillSettings(),air_on=$('refillAirControls').value==='open';
+   sharedAerationControls.startSession({air_on,aeration_seat_capacity:seats,aerating_seats:air_on?Math.min(seats,standalone_seats):0},num(input.value));
+  };
+  $('refillStopAeration').onclick=()=>{if(sharedAerationControls.finishSession())$('refillAerationMinutes').value='';};
+ };
+ if(sharedAerationControls)attachRefillAeration();
  const settings=document.createElement('details');settings.className='panel';settings.id='refillSettings';
  const fields=[['cya','CYA goal (ppm)',0,100,1],['borates','Borate goal (ppm)',0,60,1],['post_acid_low','Post-acid pH lower goal',7,7.8,.1],['post_acid_high','Post-acid pH upper goal',7,7.8,.1],['seats','Aerating seat capacity',1,12,1],['standalone_seats','Default jets-only seats',1,12,1],['acid_max_minutes','Longest acid calibration retest (min)',60,180,1]];
  settings.innerHTML='<summary>Refill and aeration settings</summary><p class="help">FC, pH, TA and CH alerts use the existing Trends limits. These startup targets are preferences, not safe-to-soak limits.</p><form id="refillSettingsForm">'+fields.map(([k,label,min,max,step])=>'<label for="refill-'+k+'">'+label+'</label><input id="refill-'+k+'" type="number" min="'+min+'" max="'+max+'" step="'+step+'" required>').join('')+'<button type="submit">Save refill settings</button></form><p id="refillSettingsStatus" role="status"></p>';
@@ -70,12 +90,14 @@ function setupRefillStartup(){
  };
  const unsaved=appHasUnsavedWork;appHasUnsavedWork=()=>unsaved()||dirty;
  panel.addEventListener('click',e=>{const action=e.target.closest('[data-startup-go]')?.dataset.startupGo;if(!action)return;
-  if(action==='aerate')openAerationLogger();
+  if(action==='aerate'&&sharedAerationControls){aeration.open=true;aeration.scrollIntoView?.({block:'nearest'});($('refillStopAeration').hidden?$('refillStartAeration'):$('refillStopAeration')).focus();}
+  else if(action==='aerate')openAerationLogger();
   else {setTab('chemistry');if(action==='acid'){const select=$('targetPh'),target=String(refillSettings().post_acid_high);if(![...select.options].some(o=>o.value===target))select.add(new Option(target,target));select.value=target;$('acidDrops').closest('details')?.setAttribute('open','');calculate();}$('chemistryForm').scrollIntoView?.({block:'start'});}
  });
  const refresh=()=>{
   if(!dirty){const p=refillSettings();for(const [k] of fields)$('refill-'+k).value=p[k];}
   const plan=refillStartupPlan(activeEvents());panel.hidden=!plan;if(!plan)return;
+  if(sharedAerationControls&&!$('refillStopAeration').hidden)aeration.open=true;
   $('refillProgress').textContent='Refill startup · '+plan.complete+'/'+plan.tasks.length+' complete';
   const checks=plan.fill.startup_checks??[];
   $('refillTasks').innerHTML='<p class="help">'+esc(plan.fill.timestamp.replace('T',' '))+' · '+esc(plan.fill.water_source||'source not recorded')+'</p><ol>'+plan.tasks.map(t=>'<li><strong>'+esc(t.title)+'</strong> · '+({done:'Done',next:'Next',wait:'Later'})[t.state]+'<p>'+esc(t.detail)+'</p>'+(t.action?'<button class="secondary" type="button" data-startup-go="'+t.action+'">'+(t.action==='aerate'?'Open aeration logger':t.action==='acid'?'Open acid-demand test':'Open test and dose')+'</button>':'')+'</li>').join('')+'</ol>'+(checks.length?'<p>Equipment checked: '+esc(checks.join(', '))+'</p>':'')+'<p class="help">Retest after adjustments. Estimates and this checklist do not establish safe-to-soak conditions.</p>';

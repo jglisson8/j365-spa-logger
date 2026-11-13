@@ -9,7 +9,10 @@ function aerationMetrics(e,minutes=e.exposure?.duration_minutes??e.duration_minu
  const jets=e.exposure?.kind==='jets',mode=jets?(e.exposure.air_on?'air_on':'water_only'):e.jet_air_use;
  if(!(minutes>=0)||!['air_on','mixed','water_only','off'].includes(mode))return null;
  const settings=refillSettings(),metadata=jets?e.exposure:e,capacity=metadata.aeration_seat_capacity??settings.seats;
- const nominal=jets?settings.standalone_seats:Math.min(capacity,Math.max(0,e.bathers??1)*(mode==='mixed'?.5:1));
+ // Legacy Mixed records tracked time with air on, not a seat fraction.
+ // New entries persist a seat count separately from their air-on minutes.
+ const legacyTimedMix=!jets&&mode==='mixed'&&metadata.aeration_seat_capacity==null&&metadata.aerating_seats==null&&Number.isFinite(metadata.air_on_minutes);
+ const nominal=jets?settings.standalone_seats:Math.min(capacity,Math.max(0,e.bathers??1)*(mode==='mixed'&&!legacyTimedMix?.5:1));
  const seats=mode==='off'||mode==='water_only'?0:Math.max(0,Math.min(capacity,metadata.aerating_seats??nominal));
  const airMinutes=mode==='off'||mode==='water_only'?0:Math.max(0,Math.min(minutes,metadata.air_on_minutes??minutes));
  return {mode,seats,airMinutes,minutes,seatMinutes:seats*airMinutes};
@@ -117,10 +120,18 @@ function acidDoseCalibration(events,at=localNow(),profile=null){
  for(const dose of available.filter(e=>e.type==='chemical_addition'&&!e.historical&&modelTime(e)!=null&&acid.test(chemicalName(e))&&productCalibrationKey(e)===key)){
   const cohort=effectiveModelFill(dose,events),when=modelTime(dose),before=tests.filter(e=>modelTime(e)<when&&effectiveModelFill(e,events)===cohort).at(-1);
   const earliest=when+Math.max(15,dose.circulation_minutes??0)*60000;
-  const after=tests.find(e=>modelTime(e)>=earliest&&effectiveModelFill(e,events)===cohort);
-  if(!cohort||!before||!Number.isFinite(after?.ph)||dose.test_before_dose_id&&dose.test_before_dose_id!==before.id)continue;
+  // A strip-edge/bounded observation is not a numeric endpoint and should
+  // not prevent a later numeric retest from being evaluated for confounders.
+  const after=tests.find(e=>Number.isFinite(e.ph)&&modelTime(e)>=earliest&&effectiveModelFill(e,events)===cohort);
+  if(!cohort||!before||!after||dose.test_before_dose_id&&dose.test_before_dose_id!==before.id)continue;
   const start=modelTime(before),end=modelTime(after),minutes=(end-when)/60000;
   if(when-start>2*3600000||minutes<Math.max(15,dose.circulation_minutes??0)||minutes>refillSettings().acid_max_minutes||[before,after].some(e=>['left_open','blown_open'].includes(e.cover_condition)))continue;
+  // A bound collected after mixing is still evidence. If it contradicts
+  // the later endpoint, don't attribute the whole interval to acid alone.
+  if(tests.some(e=>e.ph_bounds&&effectiveModelFill(e,events)===cohort&&modelTime(e)>=earliest&&modelTime(e)<end&&(()=>{
+   const b=e.ph_bounds,low=b.minimum??(['>=','>'].includes(b.operator)?b.value:null),high=b.maximum??(['<=','<'].includes(b.operator)?b.value:null);
+   return Number.isFinite(low)&&after.ph<low||Number.isFinite(high)&&after.ph>high;
+  })()))continue;
   const disturbance=(a,b)=>available.some(e=>e.id!==dose.id&&(
    isExposure(e)?fcDisturbance(e,modelTime(a),modelTime(b)):
    ['chemical_addition','soak','water_change','water_top_off'].includes(e.type)&&(modelTime(e)==null?overlapsModelInterval(e,a,b):

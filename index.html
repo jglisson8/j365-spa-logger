@@ -146,7 +146,7 @@ const SpaTime=(()=>{
 })();
 if(typeof module!=='undefined'&&module.exports)module.exports=SpaTime;
 // END GENERATED SPA TIME
-const APP_VERSION='6.75.1',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
+const APP_VERSION='6.75.2',SCHEMA_VERSION=2,LEGACY_KEY='j365_spa_log_v1',KEY='j365_spa_events_v2',CONFIG_KEY='j365_spa_config_v2';
 const CHART_BOUNDS={fc_ppm:{lower:1,upper:10,ids:['fcMinimum','fcUpperThreshold']},ph:{lower:7.2,upper:7.8,ids:['phLowerThreshold','phUpperThreshold']},ta_ppm:{lower:100,upper:150,ids:['taLowerThreshold','taUpperThreshold']},ch_ppm:{lower:150,upper:250,ids:['chLowerThreshold','chUpperThreshold']}};
 function chartBounds(key){const b=CHART_BOUNDS[key];return {lower:num($(b.ids[0])?.value)??b.lower,upper:num($(b.ids[1])?.value)??b.upper}}
 const VOLUME_GAL=395,BLEACH_PPM_PER_FLOZ=1.49;
@@ -431,7 +431,22 @@ function hasServicePatch(){return Object.keys(servicePatch.intervals).length>0||
 function persistServicePatch(){localStorage.setItem(SERVICE_PATCH_KEY,JSON.stringify(servicePatch))}
 function serviceInterval(key,fallback){const value=config?.maintenance?.reminder_intervals_days?.[key];return Number.isInteger(value)&&value>=1&&value<=3650?value:fallback}
 function filterDisplayName(value){return config?.maintenance?.filter_set_labels?.[value]??({A:'PoolPure Filter',B:'Jacuzzi Filter'}[value])??value}
-function serviceLast(activity,events){return events.filter(e=>compareSpa(e,localNow())<=0&&(activity==='water_change_full'?e.type==='water_change'&&e.full:e.type==='maintenance'&&(e.activity===activity||activity==='filter_swap'&&e.activity==='filter_replace'))).sort((a,b)=>compareSpa(b,a))[0]}
+function serviceLast(activity,events,now=Date.now()){
+ const eligible=e=>compareSpa(e,new Date(now).toISOString())<=0;
+ const matches=events.filter(e=>eligible(e)&&(activity==='water_change_full'?e.type==='water_change'&&e.full:e.type==='maintenance'&&(e.activity===activity||activity==='filter_swap'&&e.activity==='filter_replace'))).sort(timelineOrder);
+ if(activity!=='filter_rinse')return matches.at(-1);
+ const installed=serviceLast('filter_swap',events,now);
+ // Without an installation record, retain the old rinse reminder. Once
+ // a set is installed, only service of that set can move its rinse clock.
+ if(!installed)return matches.at(-1);
+ const set=installed.filter_set;
+ if(!set||set==='Unknown')return installed;
+ return events.filter(e=>eligible(e)&&e.type==='maintenance'&&e.filter_set===set&&['filter_rinse','filter_clean'].includes(e.activity)&&timelineOrder(e,installed)>0).sort(timelineOrder).at(-1)??installed;
+}
+function serviceTaskName(activity,name,events){
+ const set=activity==='filter_rinse'?serviceLast('filter_swap',events)?.filter_set:null;
+ return set&&set!=='Unknown'?name+' ('+filterDisplayName(set)+')':name;
+}
 function applyServicePatch(value,patch){return {...value,maintenance:{...value.maintenance,filter_sets:value.maintenance?.filter_sets??['A','B'],reminder_intervals_days:{...value.maintenance?.reminder_intervals_days,...patch.intervals},filter_set_labels:{...value.maintenance?.filter_set_labels,...patch.labels}}}}
 function serviceSettingsStatus(message){if(document.querySelector&&$('serviceSettingsStatus'))$('serviceSettingsStatus').textContent=message}
 function renderServiceSettings(){
@@ -456,7 +471,7 @@ function setupServiceSettings(){
  const shortcut=document.createElement('button');shortcut.type='button';shortcut.className='secondary';shortcut.textContent='Edit intervals';shortcut.onclick=()=>{setTab('maintenance');panel.open=true;panel.scrollIntoView?.({behavior:'smooth',block:'start'})};$('headerMaintenance').appendChild(shortcut);renderServiceSettings();
  const previous=render;render=function(){previous();renderServiceSettings()};
 }
-function renderExtras(){const all=activeEvents().sort((a,b)=>compareSpa(b,a)),fill=all.find(e=>e.type==='water_change'&&e.full&&compareSpa(e,localNow())<=0),fillId=fill?.new_fill_cycle_id??config?.current_fill_cycle_id,current=all.filter(e=>fillId&&e.fill_cycle_id===fillId),latest=current.find(e=>e.type==='chemistry');$('fillSummary').innerHTML=`<p>${fill?'Filled '+esc(fill.timestamp.replace('T',' '))+' · '+daysSince(fill.timestamp)+' days old':'Refill date not loaded / recorded'}</p><p>${latest?'Latest chemistry: '+esc(label(latest))+' ('+esc(latest.timestamp.replace('T',' '))+')':'No chemistry recorded for this fill.'}</p>`;const tasks=SERVICE_TASKS;$('maintenanceDue').innerHTML=tasks.map(([activity,name,key,fallback])=>{const last=serviceLast(activity,all),interval=serviceInterval(key,fallback),left=last?interval-daysSince(last.timestamp):null;return `<p>${name}: ${last?esc(last.timestamp.slice(0,10))+' · '+(left<0?Math.abs(left)+' days overdue':left===0?'due today':'due in '+left+' days'):'not recorded / loaded'} (${interval}-day interval)</p>`}).join('');requestUiCharts(all);renderBackup()}
+function renderExtras(){const all=activeEvents().sort((a,b)=>compareSpa(b,a)),fill=all.find(e=>e.type==='water_change'&&e.full&&compareSpa(e,localNow())<=0),fillId=fill?.new_fill_cycle_id??config?.current_fill_cycle_id,current=all.filter(e=>fillId&&e.fill_cycle_id===fillId),latest=current.find(e=>e.type==='chemistry');$('fillSummary').innerHTML=`<p>${fill?'Filled '+esc(fill.timestamp.replace('T',' '))+' · '+daysSince(fill.timestamp)+' days old':'Refill date not loaded / recorded'}</p><p>${latest?'Latest chemistry: '+esc(label(latest))+' ('+esc(latest.timestamp.replace('T',' '))+')':'No chemistry recorded for this fill.'}</p>`;const tasks=SERVICE_TASKS;$('maintenanceDue').innerHTML=tasks.map(([activity,name,key,fallback])=>{const last=serviceLast(activity,all),interval=serviceInterval(key,fallback),left=last?interval-daysSince(last.timestamp):null;return `<p>${esc(serviceTaskName(activity,name,all))}: ${last?esc(last.timestamp.slice(0,10))+' · '+(left<0?Math.abs(left)+' days overdue':left===0?'due today':'due in '+left+' days'):'not recorded / loaded'} (${interval}-day interval)</p>`}).join('');requestUiCharts(all);renderBackup()}
 function chartTime(e){return SpaTime.event(e)??SpaTime.calendar(e.timestamp?.slice(0,10))}
 function chartWindow(events,key,choice,now=Date.now()){
  const fill=events.filter(e=>e.type==='water_change'&&e.full&&chartTime(e)<=now).sort((a,b)=>chartTime(b)-chartTime(a))[0],fillId=fill?.new_fill_cycle_id??config?.current_fill_cycle_id;
@@ -1310,7 +1325,7 @@ function setupFriendlyUI(){
   function validStep(){for(const field of panels[fillStep].querySelectorAll('input,select'))if(!field.checkValidity()){field.reportValidity();return false}if(fillStep===0){if($('purgeProduct').value==='other'&&!$('otherPurgeProduct').value.trim()){alert('Enter the purge product.');return false}if($('shellCleaner').value==='other'&&!$('otherShellCleaner').value.trim()){alert('Enter the cleaning product.');return false}}if(fillStep===1&&!(Number($('gallons').value)>0)){alert('Enter the gallons replaced.');return false}return true}
   back.onclick=()=>{fillStep=Math.max(0,fillStep-1);showStep()};next.onclick=()=>{if(validStep()){fillStep=Math.min(2,fillStep+1);showStep()}};
   const originalMaintenanceUI=maintenanceUI;maintenanceUI=function(){originalMaintenanceUI();showStep()};$('maintenanceActivity').onchange=()=>{fillStep=0;maintenanceUI()};maintenanceUI();
-  const originalRender=render;render=function(){originalRender();for(const entry of $('history').querySelectorAll('.entry')){const details=document.createElement('details'),summary=document.createElement('summary'),strong=entry.querySelector('strong');summary.textContent=strong.textContent;strong.remove();details.appendChild(summary);while(entry.firstChild)details.appendChild(entry.firstChild);entry.appendChild(details);const record=activeEvents().find(e=>e.id===entry.querySelector('[data-edit]')?.dataset.edit);if(record){for(const key of ['jet_air_use','air_on_minutes','water_appearance','water_odor','cover_condition','cover_open_minutes','addition_reason','circulation_minutes'])if(record[key]!=null){const line=document.createElement('p');line.className='help';line.textContent=key.replaceAll('_',' ')+': '+String(record[key]).replaceAll('_',' ');details.appendChild(line)}}}const candidates=[];for(const [activity,name,key,fallback] of SERVICE_TASKS){const last=serviceLast(activity,activeEvents());if(last)candidates.push({name,left:serviceInterval(key,fallback)-daysSince(last.timestamp)})}candidates.sort((a,b)=>a.left-b.left);const next=candidates[0];$('nextService').textContent=next?'Next maintenance: '+next.name+' · '+(next.left<0?Math.abs(next.left)+' days overdue':next.left===0?'due today':'in '+next.left+' days'):'Log maintenance to establish due dates.'};
+  const originalRender=render;render=function(){originalRender();for(const entry of $('history').querySelectorAll('.entry')){const details=document.createElement('details'),summary=document.createElement('summary'),strong=entry.querySelector('strong');summary.textContent=strong.textContent;strong.remove();details.appendChild(summary);while(entry.firstChild)details.appendChild(entry.firstChild);entry.appendChild(details);const record=activeEvents().find(e=>e.id===entry.querySelector('[data-edit]')?.dataset.edit);if(record){for(const key of ['jet_air_use','air_on_minutes','water_appearance','water_odor','cover_condition','cover_open_minutes','addition_reason','circulation_minutes'])if(record[key]!=null){const line=document.createElement('p');line.className='help';line.textContent=key.replaceAll('_',' ')+': '+String(record[key]).replaceAll('_',' ');details.appendChild(line)}}}const candidates=[],serviceEvents=activeEvents();for(const [activity,name,key,fallback] of SERVICE_TASKS){const last=serviceLast(activity,serviceEvents);if(last)candidates.push({name:serviceTaskName(activity,name,serviceEvents),left:serviceInterval(key,fallback)-daysSince(last.timestamp)})}candidates.sort((a,b)=>a.left-b.left);const next=candidates[0];$('nextService').textContent=next?'Next maintenance: '+next.name+' · '+(next.left<0?Math.abs(next.left)+' days overdue':next.left===0?'due today':'in '+next.left+' days'):'Log maintenance to establish due dates.'};
   const originalBackup=renderBackup;renderBackup=function(){originalBackup();const acknowledged=new Set(JSON.parse(localStorage.getItem('j365_backed_up_ids')||'[]')),pending=read().filter(e=>!acknowledged.has(e.id)).length;if(!syncing)$('syncState').textContent=pending||configPending||hasServicePatch()||hasProductPatch()?'Saved on phone · backup pending':session?'Backed up':'Saved on phone'};
   setTab('home');
 }
@@ -1846,6 +1861,7 @@ body.app-ui{padding-bottom:calc(92px + env(safe-area-inset-bottom))}.app-ui .bra
 }
 // Interaction layer only: no chemistry/model/storage-schema changes.
 let appWorkflowState=null;
+let sharedAerationControls=null,attachRefillAeration=null;
 function refreshSoakDurationPicker(input){const select=$(input.id+'Picker');if(!select)return;const value=Number(input.value);if(Number.isInteger(value)&&value>0&&value<=Number(input.max)&&![...select.options].some(o=>Number(o.value)===value)){const option=document.createElement('option');option.value=String(value);option.textContent=value+' min (current)';select.append(option)}select.value=input.value}
 function installSoakDurationPicker(input,max){
  const select=document.createElement('select');select.id=input.id+'Picker';select.required=true;select.setAttribute('aria-label','Duration in minutes');
@@ -1859,12 +1875,14 @@ function installSoakDurationPicker(input,max){
 function setupSoakAeration(){
   const oldLabel=label;label=function(e){if(aerationSessionStart(e))return 'Aeration started · air controls '+(e.aeration_session.air_on?'open':'closed');if(isExposure(e)&&e.exposure.kind==='jets')return 'Jets / aeration — '+Number(Number(e.exposure.duration_minutes).toFixed(2))+' min · air controls '+(e.exposure.air_on?'open':'closed')+(e.exposure.air_on?' · '+Number((aerationMetrics(e)?.seatMinutes??0).toFixed(1))+' seat-min':'');return oldLabel(e);};
   const form=$('soakForm'),bathers=$('bathers'),shower=$('showered'),jets=$('jetAirUse'),button=form.querySelector('button[type="submit"]');
+  jets.querySelector('option[value="mixed"]').textContent='Mixed seats (half with air by default)';
   installSoakDurationPicker($('minutes'),120);
   const hint=document.createElement('p');hint.id='aerationHint';hint.className='help';hint.hidden=true;hint.textContent='Jets without bathers. Date/time is when aeration ended (defaults to now); the start is calculated from the duration. Saved as a jets-only exposure for pH trends, not a soak.';bathers.closest('.two').after(hint);
   const controls=document.createElement('div');controls.id='aerationControls';controls.innerHTML='<p id="aerationActive" role="status"></p><button type="button" id="startAeration">Start aeration now</button><button type="button" id="stopAeration" hidden>Finish aeration now</button><details id="aerationOptions" class="optional"><summary>Aeration options</summary><label for="aerationSeatOverride">Aerating seats (optional)</label><input id="aerationSeatOverride" type="number" min="0.5" max="12" step="0.5"><label id="airOnOverrideLabel" for="airOnOverride">Actual air-on minutes (optional)</label><input id="airOnOverride" type="number" min="0" max="720" step="1"><div id="intendedAerationField"><label for="intendedAeration">Intended minutes (optional)</label><input id="intendedAeration" type="number" min="1" max="720" step="1"></div></details>';
   hint.after(controls);
   let clockTimer=null;
   const active=()=>activeEvents().filter(aerationSessionStart).sort(timelineOrder).at(-1);
+  const listeners=new Set();
   const update=()=>{
     const session=active(),isAeration=bathers.value==='0',now=Date.now(),elapsed=session?Math.max(0,Math.floor((now-modelTime(session))/1000)):0;
     $('startAeration').hidden=!isAeration||!!session;$('stopAeration').hidden=!session;$('aerationOptions').hidden=!isAeration&&!['air_on','mixed'].includes(jets.value);$('intendedAerationField').hidden=!isAeration;
@@ -1873,10 +1891,25 @@ function setupSoakAeration(){
     $('aerationActive').hidden=!session;
     const status=session?'Aeration active · '+Math.floor(elapsed/60)+':'+String(elapsed%60).padStart(2,'0')+(session.aeration_session.intended_minutes?' / '+session.aeration_session.intended_minutes+' min planned':''):'';
     if($('aerationActive').textContent!==status)$('aerationActive').textContent=status;
+    for(const listener of listeners)listener(session,status);
     button.disabled=isAeration&&!!session;
     if(session&&!clockTimer)clockTimer=setTimeout(()=>{clockTimer=null;update();},1000);
     if(!session&&clockTimer){clearTimeout(clockTimer);clockTimer=null;}
   };
+  const startSession=(settings,intended)=>{
+    if(active())return false;
+    const record=aerationStartRecord(Date.now(),{...settings,...(intended==null?{}:{intended_minutes:intended})});
+    save([record],'Aeration started');update();return true;
+  };
+  const finishSession=(actualAir=null)=>{
+    const start=active();if(!start)return false;
+    const record=aerationFinishRecord(start,Date.now());
+    if(!record){alert('Choose an end after the start. For a very old session, correct the start or enter the completed session manually.');return false;}
+    if(record.exposure.air_on&&actualAir!=null){if(actualAir<0||actualAir>record.exposure.duration_minutes){alert('Actual air-on minutes cannot exceed elapsed time.');return false;}record.exposure.air_on_minutes=actualAir;}
+    save([record],'Aeration saved');$('intendedAeration').value='';$('aerationSeatOverride').value='';$('airOnOverride').value='';update();return true;
+  };
+  sharedAerationControls={startSession,finishSession,observe(listener){listeners.add(listener);update();}};
+  attachRefillAeration?.();
   const options=minutes=>{
     const cap=refillSettings().seats,seat=num($('aerationSeatOverride').value),airField=$(jets.value==='mixed'?'airMinutes':'airOnOverride'),air=num(airField.value),open=['air_on','mixed'].includes(jets.value);
     if(open&&seat!=null&&(!(seat>0&&seat<=cap)||!$('aerationSeatOverride').checkValidity()))throw Error('Choose an aerating seat count up to '+cap+'.');
@@ -1887,18 +1920,10 @@ function setupSoakAeration(){
     if(bathers.value!=='0'||active())return;
     try{
       const intended=num($('intendedAeration').value);if(intended!=null&&!$('intendedAeration').checkValidity())throw Error('Choose intended minutes between 1 and 720.');
-      const record=aerationStartRecord(Date.now(),{...options(null),air_on:jets.value==='air_on',...(intended==null?{}:{intended_minutes:intended})});
-      save([record],'Aeration started');update();
+      startSession({...options(null),air_on:jets.value==='air_on'},intended);
     }catch(e){alert(e.message);}
   };
-  $('stopAeration').onclick=()=>{
-    const start=active();if(!start)return;
-    const record=aerationFinishRecord(start,Date.now());
-    if(!record){alert('Choose an end after the start. For a very old session, correct the start or enter the completed session manually.');return;}
-    const actualAir=num($('airOnOverride').value);
-    if(record.exposure.air_on&&actualAir!=null){if(actualAir<0||actualAir>record.exposure.duration_minutes){alert('Actual air-on minutes cannot exceed elapsed time.');return;}record.exposure.air_on_minutes=actualAir;}
-    save([record],'Aeration saved');$('intendedAeration').value='';$('aerationSeatOverride').value='';$('airOnOverride').value='';update();
-  };
+  $('stopAeration').onclick=()=>finishSession(num($('airOnOverride').value));
   const beforeRender=render;render=function(...args){beforeRender(...args);update();};
   window.addEventListener('storage',e=>{if(e.key===KEY)update();});
 
@@ -2122,7 +2147,10 @@ function aerationMetrics(e,minutes=e.exposure?.duration_minutes??e.duration_minu
  const jets=e.exposure?.kind==='jets',mode=jets?(e.exposure.air_on?'air_on':'water_only'):e.jet_air_use;
  if(!(minutes>=0)||!['air_on','mixed','water_only','off'].includes(mode))return null;
  const settings=refillSettings(),metadata=jets?e.exposure:e,capacity=metadata.aeration_seat_capacity??settings.seats;
- const nominal=jets?settings.standalone_seats:Math.min(capacity,Math.max(0,e.bathers??1)*(mode==='mixed'?.5:1));
+ // Legacy Mixed records tracked time with air on, not a seat fraction.
+ // New entries persist a seat count separately from their air-on minutes.
+ const legacyTimedMix=!jets&&mode==='mixed'&&metadata.aeration_seat_capacity==null&&metadata.aerating_seats==null&&Number.isFinite(metadata.air_on_minutes);
+ const nominal=jets?settings.standalone_seats:Math.min(capacity,Math.max(0,e.bathers??1)*(mode==='mixed'&&!legacyTimedMix?.5:1));
  const seats=mode==='off'||mode==='water_only'?0:Math.max(0,Math.min(capacity,metadata.aerating_seats??nominal));
  const airMinutes=mode==='off'||mode==='water_only'?0:Math.max(0,Math.min(minutes,metadata.air_on_minutes??minutes));
  return {mode,seats,airMinutes,minutes,seatMinutes:seats*airMinutes};
@@ -2230,10 +2258,18 @@ function acidDoseCalibration(events,at=localNow(),profile=null){
  for(const dose of available.filter(e=>e.type==='chemical_addition'&&!e.historical&&modelTime(e)!=null&&acid.test(chemicalName(e))&&productCalibrationKey(e)===key)){
   const cohort=effectiveModelFill(dose,events),when=modelTime(dose),before=tests.filter(e=>modelTime(e)<when&&effectiveModelFill(e,events)===cohort).at(-1);
   const earliest=when+Math.max(15,dose.circulation_minutes??0)*60000;
-  const after=tests.find(e=>modelTime(e)>=earliest&&effectiveModelFill(e,events)===cohort);
-  if(!cohort||!before||!Number.isFinite(after?.ph)||dose.test_before_dose_id&&dose.test_before_dose_id!==before.id)continue;
+  // A strip-edge/bounded observation is not a numeric endpoint and should
+  // not prevent a later numeric retest from being evaluated for confounders.
+  const after=tests.find(e=>Number.isFinite(e.ph)&&modelTime(e)>=earliest&&effectiveModelFill(e,events)===cohort);
+  if(!cohort||!before||!after||dose.test_before_dose_id&&dose.test_before_dose_id!==before.id)continue;
   const start=modelTime(before),end=modelTime(after),minutes=(end-when)/60000;
   if(when-start>2*3600000||minutes<Math.max(15,dose.circulation_minutes??0)||minutes>refillSettings().acid_max_minutes||[before,after].some(e=>['left_open','blown_open'].includes(e.cover_condition)))continue;
+  // A bound collected after mixing is still evidence. If it contradicts
+  // the later endpoint, don't attribute the whole interval to acid alone.
+  if(tests.some(e=>e.ph_bounds&&effectiveModelFill(e,events)===cohort&&modelTime(e)>=earliest&&modelTime(e)<end&&(()=>{
+   const b=e.ph_bounds,low=b.minimum??(['>=','>'].includes(b.operator)?b.value:null),high=b.maximum??(['<=','<'].includes(b.operator)?b.value:null);
+   return Number.isFinite(low)&&after.ph<low||Number.isFinite(high)&&after.ph>high;
+  })()))continue;
   const disturbance=(a,b)=>available.some(e=>e.id!==dose.id&&(
    isExposure(e)?fcDisturbance(e,modelTime(a),modelTime(b)):
    ['chemical_addition','soak','water_change','water_top_off'].includes(e.type)&&(modelTime(e)==null?overlapsModelInterval(e,a,b):
@@ -2435,6 +2471,26 @@ function setupRefillStartup(){
  $('fillPh').addEventListener('input',()=>{if($('fillPh').value)$('fillPhBound').checked=false;});
  const panel=document.createElement('details');panel.className='panel';panel.id='refillStartup';panel.innerHTML='<summary id="refillProgress">Refill startup</summary><div id="refillTasks"></div>';
  $('maintenanceForm').before(panel);
+ const aeration=document.createElement('details');
+ aeration.id='refillAeration';aeration.hidden=!sharedAerationControls;
+ aeration.innerHTML='<summary>Aeration controls</summary><p id="refillAerationStatus" role="status"></p><div id="refillAerationStartFields"><label for="refillAirControls">Air controls</label><select id="refillAirControls"><option value="open">Open</option><option value="closed">Closed (water jets only)</option></select><label for="refillAerationMinutes">Planned minutes (optional)</label><input id="refillAerationMinutes" type="number" min="1" max="720" step="1"><button type="button" id="refillStartAeration">Start aeration now</button></div><button type="button" id="refillStopAeration" hidden>Finish aeration now</button>';
+ panel.append(aeration);
+ attachRefillAeration=()=>{
+  if(!sharedAerationControls)return;
+  aeration.hidden=false;
+  sharedAerationControls.observe((session,status)=>{
+   if(session)aeration.open=true;
+   $('refillAerationStartFields').hidden=!!session;$('refillStopAeration').hidden=!session;
+   const label=$('refillAerationStatus');if(label.textContent!==status)label.textContent=status;
+  });
+  $('refillStartAeration').onclick=()=>{
+   const input=$('refillAerationMinutes');if(!input.reportValidity())return;
+   const {seats,standalone_seats}=refillSettings(),air_on=$('refillAirControls').value==='open';
+   sharedAerationControls.startSession({air_on,aeration_seat_capacity:seats,aerating_seats:air_on?Math.min(seats,standalone_seats):0},num(input.value));
+  };
+  $('refillStopAeration').onclick=()=>{if(sharedAerationControls.finishSession())$('refillAerationMinutes').value='';};
+ };
+ if(sharedAerationControls)attachRefillAeration();
  const settings=document.createElement('details');settings.className='panel';settings.id='refillSettings';
  const fields=[['cya','CYA goal (ppm)',0,100,1],['borates','Borate goal (ppm)',0,60,1],['post_acid_low','Post-acid pH lower goal',7,7.8,.1],['post_acid_high','Post-acid pH upper goal',7,7.8,.1],['seats','Aerating seat capacity',1,12,1],['standalone_seats','Default jets-only seats',1,12,1],['acid_max_minutes','Longest acid calibration retest (min)',60,180,1]];
  settings.innerHTML='<summary>Refill and aeration settings</summary><p class="help">FC, pH, TA and CH alerts use the existing Trends limits. These startup targets are preferences, not safe-to-soak limits.</p><form id="refillSettingsForm">'+fields.map(([k,label,min,max,step])=>'<label for="refill-'+k+'">'+label+'</label><input id="refill-'+k+'" type="number" min="'+min+'" max="'+max+'" step="'+step+'" required>').join('')+'<button type="submit">Save refill settings</button></form><p id="refillSettingsStatus" role="status"></p>';
@@ -2451,12 +2507,14 @@ function setupRefillStartup(){
  };
  const unsaved=appHasUnsavedWork;appHasUnsavedWork=()=>unsaved()||dirty;
  panel.addEventListener('click',e=>{const action=e.target.closest('[data-startup-go]')?.dataset.startupGo;if(!action)return;
-  if(action==='aerate')openAerationLogger();
+  if(action==='aerate'&&sharedAerationControls){aeration.open=true;aeration.scrollIntoView?.({block:'nearest'});($('refillStopAeration').hidden?$('refillStartAeration'):$('refillStopAeration')).focus();}
+  else if(action==='aerate')openAerationLogger();
   else {setTab('chemistry');if(action==='acid'){const select=$('targetPh'),target=String(refillSettings().post_acid_high);if(![...select.options].some(o=>o.value===target))select.add(new Option(target,target));select.value=target;$('acidDrops').closest('details')?.setAttribute('open','');calculate();}$('chemistryForm').scrollIntoView?.({block:'start'});}
  });
  const refresh=()=>{
   if(!dirty){const p=refillSettings();for(const [k] of fields)$('refill-'+k).value=p[k];}
   const plan=refillStartupPlan(activeEvents());panel.hidden=!plan;if(!plan)return;
+  if(sharedAerationControls&&!$('refillStopAeration').hidden)aeration.open=true;
   $('refillProgress').textContent='Refill startup · '+plan.complete+'/'+plan.tasks.length+' complete';
   const checks=plan.fill.startup_checks??[];
   $('refillTasks').innerHTML='<p class="help">'+esc(plan.fill.timestamp.replace('T',' '))+' · '+esc(plan.fill.water_source||'source not recorded')+'</p><ol>'+plan.tasks.map(t=>'<li><strong>'+esc(t.title)+'</strong> · '+({done:'Done',next:'Next',wait:'Later'})[t.state]+'<p>'+esc(t.detail)+'</p>'+(t.action?'<button class="secondary" type="button" data-startup-go="'+t.action+'">'+(t.action==='aerate'?'Open aeration logger':t.action==='acid'?'Open acid-demand test':'Open test and dose')+'</button>':'')+'</li>').join('')+'</ol>'+(checks.length?'<p>Equipment checked: '+esc(checks.join(', '))+'</p>':'')+'<p class="help">Retest after adjustments. Estimates and this checklist do not establish safe-to-soak conditions.</p>';
@@ -2521,8 +2579,13 @@ function sourceWaterBaselines(events,key,at=Date.now()){
   const explicit=fill.source_chemistry?.[key];if(Number.isFinite(explicit)){rows.push({fill_id:fillId,event_id:fill.id,timestamp:fill.timestamp,value:explicit,explicit:true,water_source:fill.water_source});continue;}
   const start=SpaTime.calendar(fill.timestamp.slice(0,10)),samples=events.filter(e=>e.type==='chemistry'&&Number.isFinite(e[key])&&!isStripParameter(e,key)&&effectiveModelFill(e,events)===fillId&&chartTime(e)<=cutoff&&timelineOrder(e,fill)>=0&&(e.measurement_context==='initial_fill_before_balancing'||SpaTime.calendar(e.timestamp.slice(0,10))-start<=3*86400000)).sort(timelineOrder);
   const first=samples[0];if(!first)continue;
-  const affects=e=>key==='ta_ppm'?/acid|spa down|bisulfate|carbonate|baking soda/i.test(chemicalName(e)):key==='ch_ppm'?/calcium/i.test(chemicalName(e)):true;
-  if(events.some(e=>e.type==='chemical_addition'&&effectiveModelFill(e,events)===fillId&&timelineOrder(e,fill)>=0&&timelineOrder(e,first)<0&&affects(e)))continue;
+  const disturbed=events.some(e=>{
+   if(effectiveModelFill(e,events)!==fillId||timelineOrder(e,fill)<0||timelineOrder(e,first)>=0)return false;
+   if(e.type==='water_top_off'||e.type==='water_change'&&!e.full)return true;
+   if(e.type==='chemical_addition')return key!=='ch_ppm'||/calcium/i.test(chemicalName(e));
+   return key==='ph'&&(e.type==='soak'||isExposure(e)||aerationSessionStart(e));
+  });
+  if(disturbed)continue;
   rows.push({fill_id:fillId,event_id:first.id,timestamp:first.timestamp,value:first[key],historical:!!first.historical,explicit:false,water_source:fill.water_source});
  }
  return rows.sort((a,b)=>compareSpa(a.timestamp,b.timestamp));

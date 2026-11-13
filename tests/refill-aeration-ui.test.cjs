@@ -26,8 +26,10 @@ async function main(){
   assert.equal(run('read().find(e=>e.type==="chemistry").temperature_f'),100);
   assert.equal(run('read().find(e=>e.type==="water_change").startup_checks[0]'),'Circulation');
   assert.equal($('refillStartup').open,true);assert.match($('refillTasks').textContent,/No|no calcium addition/);
-  $('refillTasks').querySelector('[data-startup-go="aerate"]').click();assert.equal($('bathers').value,'0');
-  $('intendedAeration').value='20';$('startAeration').click();$('startAeration').click();
+  run('setTab("maintenance")');
+  $('refillTasks').querySelector('[data-startup-go="aerate"]').click();
+  assert.equal($('tab-maintenance').hidden,false);assert.equal($('refillAeration').open,true);
+  $('refillAerationMinutes').value='20';$('refillStartAeration').click();$('refillStartAeration').click();
   assert.equal(run('read().filter(aerationSessionStart).length'),1);
   const started=run('read().find(aerationSessionStart)');assert.equal(started.timestamp_instant,new Date(now).toISOString());
   assert.equal(started.aeration_session.intended_minutes,20);assert.equal(started.aeration_session.aerating_seats,4);assert.equal(started.exposure,undefined);
@@ -36,9 +38,10 @@ async function main(){
   assert.equal($('tab-soak').hidden,false);assert.equal(app.w.document.activeElement,$('stopAeration'));
   saved={...app.w.localStorage};app.dom.window.close();now+=6.5*60000;app=open();({$,run,change,submit}=app);
   assert.match($('aerationActive').textContent,/6:30.*20 min planned/);assert.equal($('stopAeration').hidden,false);
+  assert.match($('refillAerationStatus').textContent,/6:30.*20 min planned/);
   assert.equal(run('elapsedAerationView(activeEvents(),Date.now()).find(isExposure).exposure.duration_minutes'),6.5);
   assert.equal(run('aerationMetrics(elapsedAerationView(activeEvents(),Date.now()).find(isExposure)).seatMinutes'),26);
-  $('stopAeration').click();$('stopAeration').click();
+  $('refillStopAeration').click();$('stopAeration').click();
   assert.equal(run('activeEvents().filter(aerationSessionStart).length'),0);
   const completed=run('activeEvents().filter(isExposure)');assert.equal(completed.length,1);
   assert.equal(completed[0].aeration_session_id,started.id);assert.equal(completed[0].exposure.duration_minutes,6.5);
@@ -52,6 +55,12 @@ async function main(){
   $('editAerationMinutes').value='5';$('editReason').value='Correct actual finish';submit($('editRecordForm'));
   assert.equal(run('activeEvents().find(isExposure).exposure.duration_minutes'),5);
   assert.equal(run('activeEvents().filter(isExposure).length'),1);
+  $('refillAeration').open=true;
+  $('refillAirControls').value='closed';$('refillStartAeration').click();
+  now+=3*60000;$('refillStopAeration').click();
+  assert.equal(run('activeEvents().filter(isExposure).length'),2);
+  assert.equal(run('activeEvents().filter(isExposure).sort(timelineOrder).at(-1).exposure.air_on'),false);
+  assert.equal(run('activeEvents().filter(isExposure).sort(timelineOrder).at(-1).exposure.duration_minutes'),3);
   assert.deepEqual(alerts,[]);
  }finally{app.dom.window.close();}
 }

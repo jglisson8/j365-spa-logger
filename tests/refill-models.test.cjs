@@ -71,7 +71,10 @@ assert.equal(run('balanceProjection(phRows.slice(0,-1),"ph").current'),null);
 const task=run('refillStartupPlan(phRows)');assert.equal(task.tasks.find(t=>t.title==='Calcium hardness').state,'done');
 assert.doesNotMatch(task.tasks.find(t=>t.title==='Balance TA and pH').detail,/increaser/);
 c.mixed={type:'soak',bathers:1,jet_air_use:'mixed',duration_minutes:20};c.single={...c.mixed,jet_air_use:'air_on'};c.standalone={type:'maintenance',activity:'custom',exposure:{kind:'jets',duration_minutes:20,air_on:true}};
-assert.equal(run('aerationMetrics(mixed).seatMinutes'),10);assert.equal(run('aerationMetrics({...mixed,air_on_minutes:8}).seatMinutes'),4);
+assert.equal(run('aerationMetrics(mixed).seatMinutes'),10);
+assert.equal(run('aerationMetrics({...mixed,aerating_seats:.5,air_on_minutes:8}).seatMinutes'),4);
+assert.equal(run('aerationMetrics({...mixed,air_on_minutes:8}).seatMinutes'),8,'Older Mixed logs already encode the discount in the time');
+assert.equal(run('aerationMetrics({...mixed,aeration_seat_capacity:4,air_on_minutes:8}).seatMinutes'),4,'New metadata separates the two dimensions');
 assert.equal(run('aerationMetrics(single).seatMinutes'),20);assert.equal(run('aerationMetrics(standalone).seatMinutes'),80);
 assert.equal(run('aerationMetrics({...single,bathers:6}).seatMinutes'),80);assert.equal(run('aerationMetrics({...mixed,bathers:6}).seatMinutes'),60);
 assert.equal(run('aerationGasLevel({...single,jet_air_use:"water_only"})'),.25);
@@ -90,6 +93,14 @@ c.fit=[old,...priorPair,fresh,...first,...second];
 const prior=run("acidDoseCalibration(fit,'2026-11-07T21:00')"),one=run("acidDoseCalibration(fit,'2026-11-08T13:00')"),two=run("acidDoseCalibration(fit,'2026-11-09T13:00')");
 assert.equal(prior.count,0);assert.equal(prior.prior_count,1);assert.ok(prior.factor>.95&&prior.factor<1);
 assert.equal(one.count,1);assert.ok(one.factor<prior.factor&&one.factor>.7);assert.ok(one.provisional);assert.equal(two.count,2);assert.ok(two.factor<one.factor&&two.factor>.7);
+const boundedRetest=reading('bounded-retest',fresh.id,'2026-11-08T09:20',{ph_bounds:{minimum:7.4,maximum:7.8}});
+c.withBoundedRetest=[...c.fit.map(e=>e.id==='first-after'?{...e,timestamp:'2026-11-08T09:45'}:e),boundedRetest];
+assert.equal(run("acidDoseCalibration(withBoundedRetest,'2026-11-08T09:30').count"),0,'A bounded retest does not train the numeric fit');
+assert.equal(run("acidDoseCalibration(withBoundedRetest,'2026-11-08T10:00').rows[0].after_id"),'first-after');
+c.contradictoryRetest=c.withBoundedRetest.map(e=>e.id===boundedRetest.id?{...e,ph_bounds:{operator:'>=',value:8}}:e);
+assert.equal(run("acidDoseCalibration(contradictoryRetest,'2026-11-08T10:00').count"),0,'A contradictory post-mixing bound is not silently ignored');
+c.withBoundedRetest.push(addition('another-dose',fresh.id,'2026-11-08T09:32',{product:'Spa Down',amount:1,unit:'tsp'}));
+assert.equal(run("acidDoseCalibration(withBoundedRetest,'2026-11-08T10:00').count"),0,'The later numeric retest still needs an undisturbed interval');
 for(const activity of [
  {type:'maintenance',activity:'custom',exposure:{kind:'jets',duration_minutes:20,air_on:true}},
  {type:'soak',duration_minutes:10,bathers:1},{type:'water_top_off',gallons:2},{type:'chemical_addition',product:'Baking soda',amount:1,unit:'tsp'}
