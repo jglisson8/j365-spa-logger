@@ -1,4 +1,4 @@
-// J-365 Spa Sync Worker v4.3 — source-water settings and guest trend parity; owner OAuth retained.
+// J-365 Spa Sync Worker v4.4 — tablet-source context for guest trends; owner OAuth retained.
 // Backward-compatible Cloudflare Worker for private GitHub-backed spa data.
 //
 // Required Cloudflare bindings:
@@ -654,6 +654,7 @@ function guestPublicEvent(e){
   const fields=['id','schema_version','app_version','type','timestamp','timestamp_instant','time_zone','utc_offset_minutes','date_precision','created_at','fill_cycle_id','fc_ppm','cc_ppm','ph','ph_bounds','ta_ppm','ch_ppm','cya_ppm','borates_ppm','temperature_f','acid_demand_drops','acid_demand_target_ph','bathers','duration_minutes','showered','jet_air_use','air_on_minutes','product','product_id','product_revision','amount','unit','strength_percent','purity_percent','circulation_minutes','activity','filter_set','full','gallons','new_fill_cycle_id','starting_cya_ppm','starting_borates_ppm','cya_baseline_ppm','borates_baseline_ppm','exposure','water_source','softened','water_appearance','water_odor','cover_condition','cover_open_minutes','measurement_method','measurement_sources','strip_observations','test_kit','guest_actor'];
   const v=Object.fromEntries(Object.entries(guestPick(e,fields)).filter(([,value])=>typeof value!=='object'));if(e.product_profile)v.product_profile=guestSafeProfile(e.product_profile);
   if(e.ph_bounds)v.ph_bounds=guestPick(e.ph_bounds,['operator','value','minimum','maximum']);
+  if(e.tablet_dispenser)v.tablet_dispenser=guestPick(e.tablet_dispenser,['schema_version','action','session_id','method','tablet_mass_g','available_chlorine_percent','purity_percent','dissolved_mass_g','bleach_ends_dispensing','confirmed_active_at']);
   if(e.exposure)v.exposure=guestPick(e.exposure,['kind','duration_minutes','ended_at','sunlight','air_on']);
   if(e.guest_actor)v.guest_actor=guestPick(e.guest_actor,['user_id','login','label','auth_type','grant_id']);
   if(e.measurement_sources)v.measurement_sources=guestPick(e.measurement_sources,['fc_ppm','ph','ta_ppm','cc_ppm','ch_ppm','cya_ppm','borates_ppm']);
@@ -791,7 +792,7 @@ export default {
         });
       }
       if (req.method === 'GET' && path === '/health') {
-        return json({ service: 'J-365 Spa Sync', status: 'running', version: '4.3', app_version: 'live-from-github-pages', storage_schema: 2 });
+        return json({ service: 'J-365 Spa Sync', status: 'running', version: '4.4', app_version: 'live-from-github-pages', storage_schema: 2 });
       }
       // Fixed public forecast only: no session, GitHub data, coordinates or URLs
       // supplied by callers. Weather works independently of repository sync.

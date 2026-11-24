@@ -25,6 +25,7 @@ function setupUiPerformance(){
  const originalRead=read;read=function(){const c=uiPerformanceContext;if(!c)return originalRead();const raw=localStorage.getItem(KEY)||'[]';if(c.raw!==raw){c.raw=raw;c.rows=originalRead();c.values.clear()}return c.rows.slice()};
  stripTrainingEvents=uiPerformanceMemo('stripTrainingEvents',stripTrainingEvents);
  calculatedCya=uiPerformanceMemo('calculatedCya',calculatedCya);
+ tabletWindows=uiPerformanceMemo('tabletWindows',tabletWindows);
  calculatedBorates=uiPerformanceMemo('calculatedBorates',calculatedBorates);
  buildParameterFramework=uiPerformanceMemo('buildParameterFramework',buildParameterFramework);
  learnBalanceEffects=uiPerformanceMemo('learnBalanceEffects',learnBalanceEffects);

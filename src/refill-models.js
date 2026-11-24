@@ -125,6 +125,7 @@ function acidDoseCalibration(events,at=localNow(),profile=null){
   const after=tests.find(e=>Number.isFinite(e.ph)&&modelTime(e)>=earliest&&effectiveModelFill(e,events)===cohort);
   if(!cohort||!before||!after||dose.test_before_dose_id&&dose.test_before_dose_id!==before.id)continue;
   const start=modelTime(before),end=modelTime(after),minutes=(end-when)/60000;
+  if(tabletOverlap(events,start,end,cohort).length)continue;
   if(when-start>2*3600000||minutes<Math.max(15,dose.circulation_minutes??0)||minutes>refillSettings().acid_max_minutes||[before,after].some(e=>['left_open','blown_open'].includes(e.cover_condition)))continue;
   // A bound collected after mixing is still evidence. If it contradicts
   // the later endpoint, don't attribute the whole interval to acid alone.
