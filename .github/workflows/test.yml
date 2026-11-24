@@ -1,12 +1,52 @@
-name: Regression tests
+name: Release QA and gated publishing
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      baseline_sha:
+        description: Last approved deployed commit SHA (only needed if no deployment history exists)
+        required: false
+        type: string
 permissions:
   contents: read
+  deployments: read
 jobs:
   test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Resolve last successful production deployment, not the last failed push
+        id: baseline
+        run: echo "sha=$(node scripts/find-qa-baseline.cjs)" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QA_REQUEST_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          QA_FALLBACK_SHA: ${{ github.event.before || inputs.baseline_sha }}
+      - name: Models, UI contracts, generated files, and forecast delta review
+        run: npm run qa:core
+        env:
+          QA_BASE_REF: ${{ steps.baseline.outputs.sha }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forecast-review-report
+          path: artifacts/forecast-qa.json
+          if-no-files-found: ignore
+  mobile-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -14,4 +54,45 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npm test
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: npm run test:browser
+        env:
+          QA_BROWSER: ${{ matrix.browser }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobile-${{ matrix.browser }}-screenshots
+          path: artifacts/browser/
+          if-no-files-found: ignore
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [test, mobile-browser]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages-production
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/configure-pages@v5
+      - name: Package only the public runtime, not tests or QA reports
+        run: |
+          mkdir -p public-release
+          cp index.html sw.js manifest.webmanifest public-release/
+          cp -R assets public-release/assets
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public-release
+      - id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Verify exact live HTML/offline files and private-route protection
+        run: npm run verify:live

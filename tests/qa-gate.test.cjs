@@ -1,0 +1,21 @@
+const assert=require('node:assert/strict'),{forecastDiff,unreviewedChanges}=require('../scripts/lib/qa-diff.cjs');
+const before={parameters:{ph:{current:7.4,kind:'conditional',home_value:7.4,history_visible:true}}};
+assert.deepEqual(forecastDiff(before,before),[]);
+const changed={parameters:{ph:{current:null,kind:'unsupported',home_value:null,history_visible:true}}},changes=forecastDiff(before,changed),results=[{id:'acid-journey',changes}];
+assert.equal(changes.length,1);assert.equal(unreviewedChanges(results,[],'hash-a').length,1);
+const review={source_sha256:'hash-a',scenario:'acid-journey',parameter:'ph',reason:'Intended scenario change verified against the independent chemistry acceptance range.'};
+assert.equal(unreviewedChanges(results,[review],'hash-a').length,0);
+assert.equal(unreviewedChanges(results,[review],'hash-b').length,1,'A changed runtime invalidates the old explanation');
+assert.equal(unreviewedChanges(results,[{...review,reason:'pass'}],'hash-a').length,1,'A green-test claim is not an explanation');
+assert.equal(unreviewedChanges(results,[{...review,parameter:'ta_ppm'}],'hash-a').length,1);
+const displayOnly={parameters:{ph:{...before.parameters.ph,home_value:null}}};assert.equal(forecastDiff(before,displayOnly).length,1,'Hiding a valid value is a release-relevant change');
+assert.equal(forecastDiff({...before,cya:{value:14.5}},{...before,cya:{value:35.3}})[0].parameter,'cya_ppm','Inventory assumptions also require explicit review');
+console.log('PASS: forecast-value/availability/display diff detection and source-scoped mandatory review gate');
+const {selectBaseline}=require('../scripts/lib/qa-baseline.cjs');
+(async()=>{
+ const good='a'.repeat(40),failed='b'.repeat(40),latest='c'.repeat(40),deployments=[{id:2,sha:failed},{id:1,sha:good}];
+ assert.equal(await selectBaseline({fallback:latest,deployments,statuses:async id=>[{state:id===1?'success':'failure'}]}),good,'A follow-up push cannot bypass review by comparing against a failed release');
+ assert.equal(await selectBaseline({prBase:latest,deployments,statuses:async()=>[]}),latest);
+ await assert.rejects(selectBaseline({deployments:[],statuses:async()=>[]}),/No verified deployed baseline/);
+ console.log('PASS: last-successful-deployment baseline, failed-push bypass protection and no silent missing comparison');
+})().catch(e=>{console.error(e);process.exitCode=1});

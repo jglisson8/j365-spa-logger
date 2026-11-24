@@ -1,9 +1,10 @@
 // Mobile WebKit smoke check. All requests are intercepted; no private data.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
-const {webkit}=require(process.env.J365_PLAYWRIGHT||'playwright');
+const engine=process.env.QA_BROWSER||'webkit',browsers=require(process.env.J365_PLAYWRIGHT||'playwright');
+assert.ok(['chromium','webkit'].includes(engine));
 const root=path.join(__dirname,'..'),html=fs.readFileSync(path.join(root,'index.html'),'utf8');
 (async()=>{
- const browser=await webkit.launch();
+ const browser=await browsers[engine].launch();
  try{
   const page=await browser.newPage({viewport:{width:393,height:852},isMobile:true,hasTouch:true});
   const errors=[],writes=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>{errors.push(d.message());return d.dismiss();});
@@ -41,6 +42,6 @@ const root=path.join(__dirname,'..'),html=fs.readFileSync(path.join(root,'index.
   await page.locator('svg[data-chart-inspect="trendCharts-ph"]').waitFor();
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   assert.deepEqual(errors,[]);assert.deepEqual(writes,[]);
-  console.log('PASS: mobile WebKit refill → aeration Start → reload → early Finish → pH Trends; no remote writes');
+  console.log('PASS: mobile '+engine+' refill → aeration Start → reload → early Finish → pH Trends; no remote writes');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
