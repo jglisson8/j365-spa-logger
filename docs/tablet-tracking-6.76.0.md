@@ -1,5 +1,18 @@
 # Trichlor dispenser tracking · 6.76.0
 
+## 6.76.3: carry TA past a continuous-source placement
+
+The balance event loop now skips recognized tablet ledger records as discrete
+dose events. They remain in the original model input for continuous-source
+warnings, CYA accounting and calibration exclusions. Previously, a TA anchor
+before tablet placement stopped at that event, losing subsequent acid effects.
+For the November 10 TA 130 baseline, the November 12 three-tablespoon and
+November 23 two-tablespoon Spa Down entries now give a conditional TA ≈111 ppm,
+excluding unquantified tablet acidity. No TA drift is invented; unknown other
+products still stop the estimate. A subsequent TA sample resets the anchor.
+Tests cover both acid anchors, chart/home parity, continuous line visibility,
+measurement reset, immutable records and unsupported-addition safeguards.
+
 ## 6.76.2: working CYA inventory assumption
 
 At owner request, budget the entire GLB tablet load using the nominal

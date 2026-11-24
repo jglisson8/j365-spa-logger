@@ -5,6 +5,18 @@ const fill={id:'boundary-20261107',type:'water_change',timestamp:'2026-11-07T16:
 const test=(id,timestamp,extra)=>({id,type:'chemistry',fill_cycle_id:'nov-fill',timestamp,...extra});
 c.rows=[fill,test('decay-a','2026-11-10T08:00',{fc_ppm:5}),test('decay-b','2026-11-10T12:00',{fc_ppm:4}),test('decay-c','2026-11-10T16:00',{fc_ppm:3.2}),test('ta-baseline','2026-11-12T12:00',{ta_ppm:130}),run('confirmedTabletEvent("nov-fill")'),test('pre-dose','2026-11-23T18:45',{fc_ppm:5,ph_bounds:{operator:'>=',value:8},acid_demand_drops:2,acid_demand_target_ph:7.4}),{id:'acid-actual',type:'chemical_addition',fill_cycle_id:'nov-fill',timestamp:'2026-11-23T18:46',product:'Leisure Time Spa Down',amount:2,unit:'tbsp',calculation:{suggested_amount:5.8,unit:'tsp',target_ph:7.4,measurement_timestamp:'2026-11-23T18:45',acid_response_correction:{factor:1,count:0}}}];
 const original=JSON.stringify(c.rows),p=run('balanceProjection(rows,"ph")');
+c.taRows=[...c.rows,{id:'earlier-acid',type:'chemical_addition',fill_cycle_id:'nov-fill',timestamp:'2026-11-12T16:35',product:'Leisure Time Spa Down',amount:3,unit:'tbsp'}];
+const taOriginal=JSON.stringify(c.taRows),ta=run('balanceProjection(taRows,"ta_ppm")');
+assert.ok(Math.abs(ta.current-111.24700394675083)<1e-7);assert.equal(ta.blocked,false);assert.equal(ta.forecast_kind,'conditional');assert.ok(ta.tablet_context);
+assert.ok(ta.points.some(p=>p.event_id==='earlier-acid'));assert.ok(ta.points.some(p=>p.event_id==='acid-actual'));assert.equal(ta.points.some(p=>p.event_id==='trichlor-glb-20261112-1700'),false,'Tablets are not an instantaneous alkalinity dose');
+const taFacts=run('actionContext(taRows).facts.ta_ppm');assert.equal(taFacts.conditional,true);assert.equal(taFacts.kind,'unknown');assert.equal(taFacts.display_estimate,ta.current);
+assert.match(run('chartOverview(balanceProjection(taRows,"ta_ppm"),"ta_ppm",[{v:130,bounded:false}])'),/≈111.2 ppm.*conditional/);
+assert.equal(run('chartProjectionValue(balanceProjection(taRows,"ta_ppm"),Date.now()+3600000)'),ta.current,'Continue the conditional TA line, without inventing idle drift');
+c.unknownTa=[...c.taRows,{id:'unknown-treatment',type:'chemical_addition',fill_cycle_id:'nov-fill',timestamp:'2026-11-23T18:46:30',product:'Unknown treatment',amount:1,unit:'tsp'}];
+assert.equal(run('balanceProjection(unknownTa,"ta_ppm").current'),null,'Only the recognized continuous tablet source is bypassed; unknown additions still block');
+c.taRetest={id:'new-ta-test',type:'chemistry',timestamp:'2026-11-23T18:47',fill_cycle_id:'nov-fill',ta_ppm:110};
+assert.equal(run('balanceProjection([...taRows,taRetest],"ta_ppm").current'),110,'Later measurements reset the TA anchor');
+assert.equal(JSON.stringify(c.taRows),taOriginal);
 assert.equal(p.current,7.4);assert.equal(p.forecast_kind,'conditional');assert.ok(p.tablet_context);assert.equal(p.points[0].kind,'measured_bound');assert.equal(p.points[0].v,8);
 assert.ok(p.points.some(p=>p.event_id==='acid-actual'&&p.v===7.4));
 const overview=run('chartOverview(balanceProjection(rows,"ph"),"ph",[{e:rows[5],v:8,bounded:true}])');assert.match(overview,/≈7.40.*conditional/);assert.doesNotMatch(overview,/Latest sample: 8\+/);
