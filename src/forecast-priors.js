@@ -66,6 +66,7 @@ function forecastPhPrior(events,sample,local){
  return local;
 }
 function historicalForecastBand(p,t){
+ if(p?.tablet_context)return null;
  if(!p?.historical_prior||!p.points?.length||t<p.points[0].t||t>(p.kind==='balance'?p.horizon:Infinity)||t>=Math.min(p.forecast_stop??Infinity,p.soak_range_start??Infinity))return null;
  if(p.key==='ph'){
   const values=[0,2].flatMap(f=>[-PH_GAS.measurement_ph,PH_GAS.measurement_ph].map(delta=>phGasScenarioValue(p,t,f,f,delta))).filter(x=>x!=null);

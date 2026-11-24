@@ -80,15 +80,15 @@ function tabletFcProjection(events,now){
  // its metadata in the model input so interval exclusion remains effective.
  const scenarioEvents=events.map(e=>isTabletRecord(e)?{...e,type:'note',tablet_dispenser:e.tablet_dispenser??{schema_version:1,action:'start'}}:e);
  const p=fcProjectionCore(scenarioEvents,now);
- return {...p,tablet_context:context,forecast_kind:'conditional',current:null,scenario_current:p.current??null,cross:null,range:null,
-  status:'Tablets '+(context.active?'are dispensing':'were dispensing after the last FC test')+'. '+(p.model&&p.points?.length?'Curve shows decay without further tablet release—not total FC. ':'')+'Release rate and actual current FC are unknown. Logged tests and liquid doses remain visible; test before dosing.',
+ return {...p,tablet_context:context,forecast_kind:'conditional',scenario_current:p.current??null,cross:null,range:null,
+  status:'Conditional FC estimate from the latest test and actual logged doses. '+(context.active?'Further tablet release is not included.':'Tablet contribution between the test and floater removal is not included.')+' Tablet intervals do not train bleach response or decay. Confirm with a test before another adjustment.',
   assumptions:[...(p.assumptions??[]),'Conditional curve excludes unknown tablet release; it is not a lower confidence limit or dosing recommendation.']};
 }
 function tabletBalanceProjection(events,key,now){
  const p=balanceProjectionWithoutTablets(events,key,now);
  const context=tabletContext(events,now,p.t??now);
  if(!context||!['ph','ta_ppm'].includes(key))return p;
- const result={...p,tablet_context:context,forecast_kind:'conditional',current:null,scenario_current:p.current??null,status:'Trichlor can lower pH and TA. Dissolved mass is unknown; any retained curve excludes that effect. Samples remain authoritative; test before adjusting.'};
+ const result={...p,tablet_context:context,forecast_kind:'conditional',scenario_current:p.current??null,status:'Conditional '+(key==='ph'?'pH':'TA')+' estimate includes actual logged adjustments. Additional trichlor acidity is not included; it does not erase the expected acid effect. Confirm with a test before another adjustment.'};
  delete result.ph_model_limit;return result;
 }
 function confirmedTabletEvent(fill,createdAt=new Date().toISOString()){

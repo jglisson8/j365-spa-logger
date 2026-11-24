@@ -1,5 +1,22 @@
 # Trichlor dispenser tracking · 6.76.0
 
+## 6.76.1 follow-up: preserve actual-dose estimates
+
+The blanket tablet suppression hid valid Taylor endpoints and bleach effects.
+Conditional projections now retain a supported numeric current estimate and
+actual-dose anchors, while the original measured sample remains unchanged.
+Chart summaries label the value conditional; Current Estimates shows the same
+number without allowing the guidance engine to treat it as a fresh measurement
+or automatic dosing basis. For example, 2 tbsp (6 tsp) versus 5.8 tsp recommended
+retains the approximate Taylor endpoint of 7.4, not the preceding 8+ sample.
+Bleach always uses the actual recorded quantity, not a forced target. Missing
+conversion or unsupported chemistry remains unsupported; no fallback fabricates
+a value. Unknown tablet release/acidity is still excluded from these scenarios.
+Conditional scenarios do not train forecast-error calibration, and confidence
+bands/threshold times that omit tablet uncertainty are withheld. Existing
+tablet overlap exclusions remain unchanged. No saved measurements, quantities,
+recommendations or frozen snapshots are rewritten.
+
 Continuous-source ledger, not a count-to-instantaneous-FC conversion.
 Owner-confirmed historical load: four GLB 1-inch trichlor tablets placed in a
 floater approximately November 12, 2026 at 17:00 MST, on the November 7 fill.

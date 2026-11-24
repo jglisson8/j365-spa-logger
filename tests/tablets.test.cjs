@@ -33,11 +33,11 @@ c.withMeasuredCya=[...c.actualRamp,{id:'independent-cya',type:'chemistry',timest
 assert.equal(run('calculatedCya(withMeasuredCya,localNow()).capacity_scenario'),null,'Never add the entire load again to a measured baseline during dispensing');
 c.withWaterLoss=[...c.actualRamp,{id:'replace-water',type:'water_top_off',timestamp:'2026-11-20T12:00',fill_cycle_id:fill.new_fill_cycle_id,gallons:20,top_off_reason:'water_loss'}];
 assert.equal(run('calculatedCya(withWaterLoss,localNow()).capacity_scenario'),null,'Unknown dilution timing prevents a simple full-load endpoint');
-const p=run('fcProjection(active)');assert.equal(p.current,null);assert.ok(p.points.some(p=>p.event_id==='latest'&&p.kind==='measured'&&p.v===5));assert.match(p.status,/unknown/);
+const p=run('fcProjection(active)');assert.ok(Number.isFinite(p.current));assert.equal(p.forecast_kind,'conditional');assert.equal(p.cross,null);assert.ok(p.points.some(p=>p.event_id==='latest'&&p.kind==='measured'&&p.v===5));assert.match(p.status,/tablet release|Tablets|tablet contribution/i);
 c.redacted=JSON.parse(JSON.stringify(c.active));delete c.redacted.find(e=>e.id===c.tablet.id).tablet_dispenser;
-const redactedProjection=run('fcProjection(redacted)');assert.equal(redactedProjection.current,null);assert.equal(redactedProjection.model.intervals.some(r=>r.a.id==='tablet-a'),false,'An older Worker omitting metadata still cannot contaminate the conditional FC model');
+const redactedProjection=run('fcProjection(redacted)');assert.equal(redactedProjection.forecast_kind,'conditional');assert.equal(redactedProjection.model.intervals.some(r=>r.a.id==='tablet-a'),false,'An older Worker omitting metadata still cannot contaminate the conditional FC model');
 element('trendWindow').value='fill';run('renderCharts(active,{key:"fc_ppm"})');assert.match(element('trendCharts').innerHTML,/Conditional · excludes tablets|release rate|Release rate/);
-assert.match(run('forecastSummary(fcProjection(active))'),/Tablets/);
+assert.match(run('forecastSummary(fcProjection(active))'),/Conditional FC/);
 c.frozen={fill_cycle_id:fill.new_fill_cycle_id,timestamp:'2026-11-13T08:00',forecast_snapshot:{start_time:Date.parse('2026-11-13T08:00:00-07:00'),target_time:Date.parse('2026-11-13T12:00:00-07:00'),max_hours:48,start_fc:5,k:.05}};
 assert.match(run('evaluateSavedForecast(frozen,active).status'),/Tablet dispensing/);
 c.resumed=[...c.active,bleach('resume-bleach','2026-11-23T18:50'),sample('resumed-a','2026-11-23T19:00',6),sample('resumed-b','2026-11-23T20:00',5.8),sample('resumed-c','2026-11-23T21:00',5.6)];
@@ -59,6 +59,6 @@ inventory=run('calculatedCya(massKnown,"2026-11-23T19:00")');assert.ok(inventory
 assert.equal(run('calculatedCya(massKnown,"2026-11-21T10:00").value'),null,'No future knowledge leakage');
 c.newFill={...fill,id:'another-fill',timestamp:'2026-11-24T12:00',new_fill_cycle_id:'fill-next',starting_cya_ppm:0};
 assert.equal(run('calculatedCya([...active,newFill],"2026-11-24T13:00").value'),0);
-const phOriginal=run('balanceProjection(active,"ph")');assert.equal(phOriginal.current,null);assert.match(phOriginal.status,/Trichlor/);
+const phOriginal=run('balanceProjection(active,"ph")');assert.equal(phOriginal.current??null,null);assert.match(phOriginal.status,/trichlor/i);
 assert.equal(JSON.stringify(c.active),original,'No mutations to doses, tests, snapshots or provenance');
 console.log('PASS: historical tablet ownership, continuous-not-bolus FC, active state, bleach/decay protection, prior preservation, CYA bounds, assumed bleach stop, clean resumption and chart visibility');
