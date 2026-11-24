@@ -58,6 +58,9 @@ main-branch publishing. The deploy job depends on the model/replay job and both
 mobile engines. Main pushes and manual dispatch can publish; PRs cannot. No
 private-data tokens are provided to these jobs. Public artifacts contain only
 index.html, sw.js, manifest.webmanifest and assets.
+Release package names include the run attempt, so retrying a failed deployment
+cannot collide with an earlier upload. A bounded availability check waits for
+GitHub's artifact list to catch up; missing or duplicate packages block publishing.
 
 If any pre-deploy gate fails, the existing live app stays in place. If a
 post-deploy smoke test fails, investigate immediately and revert the faulty

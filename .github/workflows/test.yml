@@ -70,6 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
       pages: write
       id-token: write
     concurrency:
@@ -92,7 +93,15 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: public-release
+          name: github-pages-${{ github.run_attempt }}
+      - name: Wait for the exact release package to become visible
+        run: node scripts/wait-pages-artifact.cjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QA_PAGES_ARTIFACT: github-pages-${{ github.run_attempt }}
       - id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
       - name: Verify exact live HTML/offline files and private-route protection
         run: npm run verify:live
