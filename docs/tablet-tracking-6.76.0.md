@@ -1,5 +1,18 @@
 # Trichlor dispenser tracking · 6.76.0
 
+## 6.76.2: working CYA inventory assumption
+
+At owner request, budget the entire GLB tablet load using the nominal
+half-ounce reference, giving CYA ≈35 ppm including earlier dichlor. This is
+an explicit full-load planning allowance, not a dissolution-rate estimate.
+The inventory_allowance flag, known_minimum and dissolution bounds distinguish
+the estimate from measured chemistry. A retained unconfirmed-inventory issue
+and null decay band prevent claims of slower FC decay, validated acid-buffer
+chemistry, or clean tablet-period calibration. Null CYA bands must not coerce
+to zero during neighboring-band selection. Do not credit instantaneous FC.
+Measured baselines, water-replacement uncertainty and refill boundaries retain
+precedence. No historical measurements or doses change.
+
 ## 6.76.1 follow-up: preserve actual-dose estimates
 
 The blanket tablet suppression hid valid Taylor endpoints and bleach effects.

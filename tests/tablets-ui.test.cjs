@@ -6,6 +6,7 @@ try{
  const w=dom.window,$=id=>w.document.getElementById(id),run=s=>w.eval(s);
  run('write([{id:"fill-fixture-1",type:"water_change",full:true,gallons:395,new_fill_cycle_id:"nov-fill",timestamp:"2026-11-07T16:00"},confirmedTabletEvent("nov-fill")]);render()');
  assert.match($('tabletStatus').textContent,/4 tablets · active/);
+ assert.match($('waterAge').textContent,/CYA ≈21 ppm/);assert.doesNotMatch($('waterAge').textContent,/unknown|Check CYA/);assert.match($('tabletCyaDetails').textContent,/full tablet-load allowance/);
  assert.equal($('tabletCyaTrend').hidden,false);assert.match($('tabletCyaDetails').textContent,/entire load dissolves.*20.8 ppm/);assert.match($('tabletCyaDetails').textContent,/nominal.*not individually weighed/);
  $('tabletDate').value='2026-11-22';$('tabletTime').value='16:00';$('tabletMass').value='10';$('saveTabletUpdate').click();$('saveTabletUpdate').click();
  assert.equal(run('read().filter(e=>e.tablet_dispenser?.action==="checkpoint").length'),1);
